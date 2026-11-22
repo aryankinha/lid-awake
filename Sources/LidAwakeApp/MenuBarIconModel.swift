@@ -12,7 +12,7 @@ final class MenuBarIconModel: ObservableObject {
     }
 
     @Published private(set) var state = State(
-        symbol: "moon.fill",
+        symbol: "laptopcomputer",
         accessibilityLabel: "LidAwake off, normal sleep"
     )
 

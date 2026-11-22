@@ -2,20 +2,15 @@ import AppKit
 import Foundation
 
 let outputDirectory = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ".")
-let iconset = outputDirectory.appendingPathComponent("LidAwake.iconset", isDirectory: true)
+let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 let icns = outputDirectory.appendingPathComponent("LidAwake.icns")
-try? FileManager.default.removeItem(at: iconset)
-try? FileManager.default.removeItem(at: icns)
-try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: scratch) }
 
 func makeMaster() -> NSImage {
     let size = NSSize(width: 1024, height: 1024)
     let image = NSImage(size: size)
     image.lockFocus()
-    guard let context = NSGraphicsContext.current?.cgContext else {
-        image.unlockFocus()
-        return image
-    }
 
     let bounds = NSRect(origin: .zero, size: size)
     let tileRect = bounds.insetBy(dx: 82, dy: 82)
@@ -34,65 +29,43 @@ func makeMaster() -> NSImage {
 
     tile.addClip()
 
-    let gradient = NSGradient(colors: [
-        NSColor(srgbRed: 0.035, green: 0.055, blue: 0.12, alpha: 1),
-        NSColor(srgbRed: 0.10, green: 0.06, blue: 0.24, alpha: 1),
-        NSColor(srgbRed: 0.18, green: 0.12, blue: 0.40, alpha: 1)
-    ])!
+    let gradient = NSGradient(
+        starting: NSColor(srgbRed: 0.04, green: 0.57, blue: 0.57, alpha: 1),
+        ending: NSColor(srgbRed: 0.02, green: 0.20, blue: 0.32, alpha: 1)
+    )!
     gradient.draw(in: tileRect, angle: -55)
 
-    // Soft top-left glass highlight.
-    context.saveGState()
-    if let highlight = NSGradient(colorsAndLocations:
-        (NSColor.white.withAlphaComponent(0.30), 0.0),
-        (NSColor.white.withAlphaComponent(0.02), 0.55),
-        (NSColor.clear, 1.0)) {
-        let highlightRect = NSRect(x: -100, y: 480, width: 900, height: 800)
-        highlight.draw(in: NSBezierPath(ovalIn: highlightRect), angle: -35)
-    }
-    context.restoreGState()
+    let rim = NSBezierPath(roundedRect: tileRect.insetBy(dx: 4, dy: 4),
+                           xRadius: 206, yRadius: 206)
+    NSColor.white.withAlphaComponent(0.25).setStroke()
+    rim.lineWidth = 8
+    rim.stroke()
 
-    // Subtle inner border / glass edge.
-    let border = NSBezierPath(roundedRect: tileRect, xRadius: 210, yRadius: 210)
-    NSColor.white.withAlphaComponent(0.18).setStroke()
-    border.lineWidth = 3
-    border.stroke()
+    // Use a bold laptop outline so the silhouette remains readable at 16 pt.
+    let screen = NSBezierPath(
+        roundedRect: NSRect(x: 271, y: 350, width: 482, height: 321),
+        xRadius: 35,
+        yRadius: 35
+    )
+    NSColor(srgbRed: 0.86, green: 1.0, blue: 0.98, alpha: 1).setStroke()
+    screen.lineWidth = 39
+    screen.stroke()
 
-    // Crescent moon from the system symbol, tinted warm and drawn cleanly at all sizes.
-    let cream = NSColor(srgbRed: 0.96, green: 0.91, blue: 0.74, alpha: 1)
-    let symbolConfig = NSImage.SymbolConfiguration(pointSize: 560, weight: .regular)
-        .applying(NSImage.SymbolConfiguration(paletteColors: [cream]))
-    if let moon = NSImage(systemSymbolName: "moon.fill", accessibilityDescription: nil)?
-        .withSymbolConfiguration(symbolConfig) {
-        let moonSize = moon.size
-        let moonRect = NSRect(
-            x: (size.width - moonSize.width) / 2,
-            y: 250,
-            width: moonSize.width,
-            height: moonSize.height
-        )
-        moon.draw(in: moonRect)
-    }
+    let base = NSBezierPath(roundedRect: NSRect(x: 209, y: 269, width: 606, height: 45),
+                            xRadius: 22, yRadius: 22)
+    NSColor(srgbRed: 0.86, green: 1.0, blue: 0.98, alpha: 1).setFill()
+    base.fill()
 
-    // A small awake spark.
-    let spark = NSBezierPath()
-    spark.move(to: NSPoint(x: 760, y: 760))
-    spark.line(to: NSPoint(x: 782, y: 824))
-    spark.line(to: NSPoint(x: 846, y: 846))
-    spark.line(to: NSPoint(x: 782, y: 868))
-    spark.line(to: NSPoint(x: 760, y: 932))
-    spark.line(to: NSPoint(x: 738, y: 868))
-    spark.line(to: NSPoint(x: 674, y: 846))
-    spark.line(to: NSPoint(x: 738, y: 824))
-    spark.close()
-    NSColor(srgbRed: 0.35, green: 0.95, blue: 0.73, alpha: 1).setFill()
-    spark.fill()
-
-    // A quiet lid line under the moon.
-    let lid = NSBezierPath(roundedRect: NSRect(x: 275, y: 190, width: 474, height: 22),
-                           xRadius: 11, yRadius: 11)
-    NSColor.white.withAlphaComponent(0.32).setFill()
-    lid.fill()
+    let bolt = NSBezierPath()
+    bolt.move(to: NSPoint(x: 555, y: 638))
+    bolt.line(to: NSPoint(x: 422, y: 481))
+    bolt.line(to: NSPoint(x: 502, y: 481))
+    bolt.line(to: NSPoint(x: 475, y: 384))
+    bolt.line(to: NSPoint(x: 602, y: 540))
+    bolt.line(to: NSPoint(x: 520, y: 540))
+    bolt.close()
+    NSColor(srgbRed: 0.54, green: 1.0, blue: 0.82, alpha: 1).setFill()
+    bolt.fill()
 
     image.unlockFocus()
     return image
@@ -106,47 +79,41 @@ guard let tiff = master.tiffRepresentation,
     exit(1)
 }
 
-let masterURL = outputDirectory.appendingPathComponent("icon-1024.png")
+let masterURL = scratch.appendingPathComponent("icon-1024.png")
 try png.write(to: masterURL)
 
-let variants: [(String, Int)] = [
-    ("icon_16x16.png", 16),
-    ("icon_16x16@2x.png", 32),
-    ("icon_32x32.png", 32),
-    ("icon_32x32@2x.png", 64),
-    ("icon_128x128.png", 128),
-    ("icon_128x128@2x.png", 256),
-    ("icon_256x256.png", 256),
-    ("icon_256x256@2x.png", 512),
-    ("icon_512x512.png", 512),
-    ("icon_512x512@2x.png", 1024)
+// Each ICNS element has a four-byte type, a big-endian length that includes
+// its eight-byte header, and a PNG payload at the type's native pixel size.
+let variants = [
+    ("icp4", 16), ("icp5", 32), ("icp6", 64),
+    ("ic07", 128), ("ic08", 256), ("ic09", 512), ("ic10", 1024),
+    ("ic11", 32), ("ic12", 64), ("ic13", 256), ("ic14", 512)
 ]
 
-for (name, px) in variants {
-    let url = iconset.appendingPathComponent(name)
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
-    process.arguments = ["-z", "\(px)", "\(px)", masterURL.path, "--out", url.path]
-    process.standardOutput = FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
-    try process.run()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else {
-        fputs("sips failed for \(name)\n", stderr)
-        exit(1)
+func element(_ type: String, payload: Data) -> Data {
+    var length = UInt32(payload.count + 8).bigEndian
+    var data = Data(type.utf8)
+    withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
+    data.append(payload)
+    return data
+}
+
+var payload = Data()
+for (type, pixels) in variants {
+    let url = scratch.appendingPathComponent("\(pixels).png")
+    if !FileManager.default.fileExists(atPath: url.path) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
+        process.arguments = ["-z", "\(pixels)", "\(pixels)", masterURL.path, "--out", url.path]
+        process.standardOutput = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
+    payload.append(element(type, payload: try Data(contentsOf: url)))
 }
 
-let iconutil = Process()
-iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-iconutil.arguments = ["-c", "icns", iconset.path, "-o", icns.path]
-try iconutil.run()
-iconutil.waitUntilExit()
-guard iconutil.terminationStatus == 0 else {
-    fputs("iconutil failed\n", stderr)
-    exit(1)
-}
-
-try? FileManager.default.removeItem(at: masterURL)
-try? FileManager.default.removeItem(at: iconset)
+try element("icns", payload: payload).write(to: icns, options: .atomic)
 print(icns.path)

@@ -10,13 +10,6 @@ struct MenuBarView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var showAdvanced: Bool
-    @State private var advancedHovered = false
-    @State private var diagnosticsHovered = false
-    @State private var quitHovered = false
-    @State private var scrollContentHeight: CGFloat = 490
-    @FocusState private var advancedFocused: Bool
-    @FocusState private var diagnosticsFocused: Bool
-    @FocusState private var quitFocused: Bool
     @FocusState private var clearFocused: Bool
 
     private let sideInset: CGFloat = 16
@@ -39,79 +32,28 @@ struct MenuBarView: View {
 
     private var maxScrollHeight: CGFloat {
         let screenHeight = hostingScreen?.visibleFrame.height ?? 900
-        return min(640, max(340, screenHeight - 180))
-    }
-
-    private var scrollHeight: CGFloat {
-        min(max(scrollContentHeight, 160), maxScrollHeight)
+        return min(580, max(120, screenHeight - 132))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
                 .padding(.horizontal, sideInset)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
+                .padding(.vertical, 12)
 
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 12) {
-                    primaryModule
-                    if let notice = noticeSpec {
-                        NoticeBanner(
-                            tone: notice.tone,
-                            title: notice.title,
-                            message: notice.message,
-                            actionTitle: notice.actionTitle,
-                            action: notice.action,
-                            actionDisabled: notice.actionDisabled && model.isBusy,
-                            dismiss: notice.canDismiss ? { model.dismissError() } : nil
-                        )
-                    }
-                    settingsArea
-                    advancedSection
-                }
-                .padding(.horizontal, sideInset)
-                .padding(.bottom, 14)
-                .frame(width: Theme.panelWidth, alignment: .leading)
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ContentHeightKey.self,
-                            value: proxy.size.height
-                        )
-                    }
-                )
-            }
-            .scrollIndicators(.visible)
-            .frame(width: Theme.panelWidth)
-            .frame(height: scrollHeight)
-            .onPreferenceChange(ContentHeightKey.self) { height in
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    if abs(height - scrollContentHeight) > 0.5 {
-                        scrollContentHeight = height
-                    }
-                }
-            }
+            ViewThatFits(in: .vertical) {
+                panelContent
 
-            if scrollContentHeight > scrollHeight + 8 {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.and.down")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("Scroll")
+                ScrollView {
+                    panelContent
                 }
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.secondaryText)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 2)
-                .accessibilityLabel("More content is available. Scroll to see it.")
+                .frame(height: maxScrollHeight)
             }
+            .frame(maxHeight: maxScrollHeight)
 
             footer
         }
         .frame(width: Theme.panelWidth)
-        .background(panelBackground)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -124,9 +66,31 @@ struct MenuBarView: View {
             onSizeChange?(height)
         }
         .onAppear {
-            model.start()
-            model.refreshLaunchAtLogin()
+            if onSizeChange == nil { model.refreshLaunchAtLogin() }
         }
+    }
+
+    private var panelContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            primaryModule
+            if let notice = noticeSpec {
+                NoticeBanner(
+                    tone: notice.tone,
+                    title: notice.title,
+                    message: notice.message,
+                    actionTitle: notice.actionTitle,
+                    action: notice.action,
+                    actionDisabled: notice.actionDisabled && model.isBusy,
+                    dismiss: notice.canDismiss ? { model.dismissError() } : nil
+                )
+            }
+            settingsArea
+            advancedSection
+        }
+        .padding(.horizontal, sideInset)
+        .padding(.bottom, 10)
+        .frame(width: Theme.panelWidth)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Header
@@ -136,27 +100,31 @@ struct MenuBarView: View {
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 16, height: 16)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .frame(width: 23, height: 23)
                 .accessibilityHidden(true)
 
             Text("LidAwake")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(.headline)
                 .foregroundStyle(.primary)
 
             Spacer()
         }
-        .frame(height: 20)
     }
 
     // MARK: - Primary control
 
     private var primaryModule: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: model.isActive ? "bolt.fill" : "laptopcomputer")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(model.isActive ? Theme.activeText : Theme.secondaryText)
+                    .frame(width: 24, height: 22)
+                    .accessibilityHidden(true)
+
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Keep this Mac awake")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.headline)
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -240,24 +208,7 @@ struct MenuBarView: View {
         }
         .padding(16)
         .background(primaryBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.primaryRadius, style: .continuous)
-                .strokeBorder(Theme.hairline, lineWidth: 0.5)
-        )
-        .shadow(
-            color: Color.black.opacity(colorScheme == .dark ? 0.24 : 0.06),
-            radius: 10,
-            x: 0,
-            y: 3
-        )
-        .animation(
-            reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86),
-            value: model.isActive
-        )
-        .animation(
-            reduceMotion ? nil : .easeInOut(duration: 0.18),
-            value: model.presentation.stateLabel
-        )
+
     }
 
     private var statusLine: some View {
@@ -288,6 +239,7 @@ struct MenuBarView: View {
                     } else if let remaining = model.timeRemainingText(at: context.date) {
                         Text("Turns off in \(remaining)\(tripModeSuffix)")
                             .monospacedDigit()
+                            .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Text("Session active")
                     }
@@ -459,8 +411,8 @@ struct MenuBarView: View {
                 tone: .warning,
                 title: "Couldn't finish that",
                 message: error,
-                actionTitle: model.isActive ? nil : "Try Again",
-                action: model.isActive ? nil : { model.arm() },
+                actionTitle: model.isArmBlocked || model.isActive ? nil : "Try Again",
+                action: model.isArmBlocked || model.isActive ? nil : { model.arm() },
                 actionDisabled: true,
                 canDismiss: true
             )
@@ -535,9 +487,7 @@ struct MenuBarView: View {
                     title: recovering ? "Session recovery" : "Another session",
                     trailing: recovering ? "Waiting for safety check" : "Managed elsewhere",
                     mode: effectiveMode,
-                    duration: model.externalLease?.deadline.map {
-                        $0.timeIntervalSince(model.externalLease?.startedAt ?? Date())
-                    },
+                    duration: effectiveDuration,
                     trip: effectiveTrip,
                     floor: effectiveFloor,
                     thermal: effectiveThermal
@@ -648,64 +598,22 @@ struct MenuBarView: View {
     // MARK: - Advanced
 
     private var advancedSection: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(
-                    reduceMotion
-                        ? nil
-                        : .spring(response: 0.34, dampingFraction: 0.88)
-                ) {
-                    showAdvanced.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Advanced")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.primary)
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(showAdvanced ? 90 : 0))
-                        .animation(
-                            reduceMotion ? nil : .easeOut(duration: 0.18),
-                            value: showAdvanced
-                        )
-                        .accessibilityHidden(true)
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 44)
+        DisclosureGroup(isExpanded: $showAdvanced) {
+            advancedContent
+                .padding(.top, 6)
+        } label: {
+            Label("Advanced", systemImage: "gearshape")
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                        .fill(Color.primary.opacity(advancedHovered ? 0.045 : 0))
-                )
-            }
-            .buttonStyle(RowPressStyle())
-            .focused($advancedFocused)
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                    .strokeBorder(
-                        Color.accentColor.opacity(advancedFocused ? 0.9 : 0),
-                        lineWidth: 2
-                    )
-            )
-            .onHover { advancedHovered = $0 }
-            .accessibilityLabel("Advanced")
-            .accessibilityValue(showAdvanced ? "Expanded" : "Collapsed")
-            .accessibilityHint("Shows sleep control, Open at Login, and diagnostics.")
-
-            if showAdvanced {
-                advancedContent
-                    .transition(.opacity)
-            }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Theme.groupFill, in: RoundedRectangle(cornerRadius: Theme.groupRadius))
     }
 
     private var advancedContent: some View {
         VStack(spacing: 0) {
-            GroupDivider()
-
             if model.isActive || model.externalSession {
                 SettingsValueRow(
                     title: "Sleep control",
@@ -763,35 +671,18 @@ struct MenuBarView: View {
             Button {
                 DiagnosticsWindowController.shared.show(model: model)
             } label: {
-                HStack(spacing: 8) {
-                    Text("Diagnostics…")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.primary)
-                    Spacer(minLength: 8)
+                HStack {
+                    Label("Diagnostics…", systemImage: "stethoscope")
+                    Spacer()
                     Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                 }
                 .padding(.horizontal, 16)
-                .frame(height: 38)
+                .frame(minHeight: 36)
                 .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                        .fill(Color.primary.opacity(diagnosticsHovered ? 0.035 : 0))
-                        .padding(.horizontal, 6)
-                )
             }
-            .buttonStyle(RowPressStyle())
-            .focused($diagnosticsFocused)
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                    .strokeBorder(
-                        Color.accentColor.opacity(diagnosticsFocused ? 0.9 : 0),
-                        lineWidth: 2
-                    )
-            )
-            .onHover { diagnosticsHovered = $0 }
+            .buttonStyle(.borderless)
             .accessibilityLabel("Open Diagnostics")
         }
     }
@@ -800,66 +691,40 @@ struct MenuBarView: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
-            Rectangle()
-                .fill(Theme.hairline)
-                .frame(height: 0.5)
-
+            Divider()
             HStack(spacing: 10) {
                 if model.isActive {
                     Text("Keep the Mac on a hard, ventilated surface.")
-                        .font(.system(size: 11.5))
+                        .font(.caption)
                         .foregroundStyle(Theme.secondaryText)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                        .transition(.opacity)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer(minLength: 4)
-
-                Button {
-                    model.quit()
-                } label: {
-                    Label("Quit", systemImage: "power")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.secondaryText)
-                        .padding(.horizontal, 9)
-                        .frame(height: 32)
-                        .background(
-                            RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                                .fill(Color.primary.opacity(quitHovered ? 0.06 : 0))
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(RowPressStyle())
-                .focused($quitFocused)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                        .strokeBorder(
-                            Color.accentColor.opacity(quitFocused ? 0.9 : 0),
-                            lineWidth: 2
-                        )
-                )
-                .onHover { quitHovered = $0 }
-                .disabled(model.isBusy)
-                .accessibilityLabel("Quit LidAwake")
-                .help("Quits LidAwake, restores its own session, and removes runtime helpers. External sleep flags are left untouched.")
+                quitButton
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
+            .padding(.horizontal, sideInset)
+            .padding(.vertical, 9)
         }
-        .animation(
-            reduceMotion ? nil : .easeInOut(duration: 0.18),
-            value: model.isActive
-        )
     }
 
-    // MARK: - Background
+    private var quitButton: some View {
+        let button = Button {
+            model.quit()
+        } label: {
+            Label("Quit", systemImage: "power")
+        }
+        .disabled(model.isBusy)
+        .accessibilityLabel("Quit LidAwake")
+        .help("Quit LidAwake and restore normal sleep for this session.")
 
-    private var panelBackground: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(.regularMaterial)
+        return Group {
+            if #available(macOS 26, *) {
+                button.buttonStyle(.glass)
+            } else {
+                button.buttonStyle(.bordered)
+            }
+        }
+        .controlSize(.regular)
     }
 }
-
-

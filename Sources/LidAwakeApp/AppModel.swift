@@ -680,7 +680,7 @@ final class AppModel: ObservableObject {
             return "exclamationmark.triangle.fill"
         }
         if errorMessage != nil { return "exclamationmark.triangle.fill" }
-        return isActive ? "sun.max.fill" : "moon.fill"
+        return isActive ? "bolt.fill" : "laptopcomputer"
     }
 
     var menuAccessibilityLabel: String {

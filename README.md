@@ -36,41 +36,16 @@ SIP, kernel extensions, or any unrelated power setting.
 
 ## Interface
 
-The panel is deliberately small and has one primary control:
+The menu bar shows a laptop when LidAwake is off, a bolt when a session is
+active, and a warning triangle when it needs attention.
 
-- **Keep this Mac awake** — a single switch with a plain-language status line.
-  It explains when the app is armed, running with the lid closed, blocked by an
-  external flag, below the battery limit, too hot, restoring sleep, or managed by
-  another session.
-- **When to stop** — one grouped surface with four native rows: Turn off after,
-  Stop at battery, Stop if the Mac runs hot, and Turn off when I reopen the lid.
-  While a session is active, the same rows become an accurate read-only summary
-  of that session's real configuration.
-- **Live system line** — power/battery, thermal state and lid state, in one quiet
-  line rather than a row of chips.
-- **Advanced** — sleep control, Open at Login, and a separate Diagnostics window.
-  The whole row is a 44 pt hit target; the chevron is not the only clickable part.
-- **Flat notices** — one warning or error at a time, with a single action. Safety
-  failures cannot be dismissed; routine messages can.
-- **Last stop** — an automatic battery, thermal, timer, lid or watchdog stop stays
-  explained in the primary module until the next session starts.
+- **Keep this Mac awake** shows the current session, remaining time and safety notices.
+- **Session settings** cover the timer, battery floor, thermal protection and Trip Mode.
+- **Advanced** contains sleep control, Open at Login and Diagnostics.
 
-The panel uses one system material, one primary surface, one grouped settings
-surface, and native controls. An external sleep flag is stated once in the primary
-module with one Clear action, not repeated in a banner. Active battery/thermal risk
-is shown inline before the session stops. Status colours adapt to light and dark
-appearances.
-The content is measured and capped to the visible screen. On a normal display the
-expanded Advanced panel fits all three rows without scrolling; smaller displays
-scroll with a visible scrollbar and a "Scroll" hint.
-The menu bar label observes a separate icon model and uses a fixed 18×18 frame, so
-the once-per-second safety refresh cannot make the sun/moon icon flicker.
-
-Screenshots (offscreen AppKit capture, 2×; the warning state shows an external
-system sleep flag and the intentionally disabled switch):
-
-- `docs/ui-dark-collapsed.png`, `docs/ui-dark-advanced.png`
-- `docs/ui-light-collapsed.png`, `docs/ui-light-advanced.png`
+The panel follows the macOS menu bar window appearance and uses native controls.
+It fits its content and adds scrolling on shorter displays. The Quit action stays
+visible below the scrolling area. The files in `docs/` show the original 1.0 UI.
 
 ---
 
@@ -121,7 +96,7 @@ The fallback is optional; the default path requires no admin access.
 
 - macOS 13 or later (tested on macOS 27.2).
 - Apple Silicon MacBook (tested on M3). Intel builds are source-build only and untested.
-- Xcode / Command Line Tools with Swift 5.9+ (Swift 6.4.2 used here).
+- Xcode / Command Line Tools with the macOS 26 SDK or later (Xcode 27.2 used here).
 - No third-party dependencies.
 
 ---
@@ -165,7 +140,7 @@ clear it with admin approval if you want LidAwake to own the state.
 
 ### Automation
 
-The app registers the `lidawake://` URL scheme:
+The app registers the `lidawake://` URL scheme. Link options apply to the requested session. A value of `minutes=0` uses the eight-hour safety cap.
 
 ```sh
 open 'lidawake://on?minutes=120&trip=1'
@@ -333,11 +308,10 @@ LidAwake/
 │   ├── LidAwakeCore/       # IOKit, session, watchdog, presentation, installers
 │   ├── LidAwakeApp/        # SwiftUI menu bar app + design system
 │   └── LidAwakeCtl/        # CLI helper/watchdog
-├── Tests/                  # XCTest unit tests (58)
+├── Tests/                  # XCTest unit tests
 ├── Resources/              # Info.plist + LidAwake.icns
 ├── scripts/                # build, icon, install, uninstall, tests
-├── docs/                   # UI screenshots (light/dark, collapsed/advanced)
-├── dist/LidAwake.app       # built app
+├── docs/                   # Original 1.0 UI screenshots
 ├── ARCHITECTURE.md
 ├── CHECKLIST.md
 ├── TEST_RESULTS.md

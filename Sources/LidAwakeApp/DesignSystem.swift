@@ -35,9 +35,9 @@ enum Theme {
         dark: NSColor(srgbRed: 0.66, green: 0.66, blue: 0.69, alpha: 1)
     )
 
-    static let panelWidth: CGFloat = 344
+    static let panelWidth: CGFloat = 360
     static let primaryRadius: CGFloat = 16
-    static let groupRadius: CGFloat = 12
+    static let groupRadius: CGFloat = 14
     static let rowRadius: CGFloat = 7
     static let hairline = Color.primary.opacity(0.08)
     static let primaryFill = Color.primary.opacity(0.045)
@@ -131,7 +131,8 @@ struct SettingsValueRow: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, 16)
-        .frame(height: 38)
+        .padding(.vertical, 5)
+        .frame(minHeight: 38)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(value)")
     }
@@ -173,13 +174,14 @@ struct SettingsMenuRow: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .controlSize(.regular)
-            .frame(width: 160, alignment: .trailing)
+            .fixedSize()
             .accessibilityLabel(title)
             .accessibilityValue(value)
             .accessibilityHint("Choose a value")
         }
         .padding(.horizontal, 16)
-        .frame(height: 38)
+        .padding(.vertical, 5)
+        .frame(minHeight: 38)
     }
 }
 
@@ -361,23 +363,6 @@ struct NoticeActionStyle: ButtonStyle {
     }
 }
 
-/// Preserves the label's explicit colors (unlike `.borderless`, which adopts a
-/// secondary tint) while still giving a clear pressed state.
-struct RowPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.7 : 1)
-            .contentShape(Rectangle())
-    }
-}
-
-struct ContentHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 struct PanelHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -388,14 +373,14 @@ struct PanelHeightKey: PreferenceKey {
 extension SleepMode {
     var friendlyName: String {
         switch self {
-        case .clamshell: return "Lid close only"
+        case .clamshell: return "Lid close & idle"
         case .system: return "All sleep"
         }
     }
 
     var friendlyDetail: String {
         switch self {
-        case .clamshell: return "Blocks lid-close sleep. Idle sleep still works."
+        case .clamshell: return "Prevents lid-close and idle sleep while active."
         case .system: return "Blocks all sleep, including macOS safety sleep."
         }
     }
