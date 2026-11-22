@@ -11,17 +11,21 @@ final class DiagnosticsWindowController {
     private var window: NSWindow?
 
     func show(model: AppModel) {
-        // Recreate the content so a second open always shows fresh diagnostics
-        // instead of a stale snapshot. The frame autosave restores its position.
-        window?.close()
+        if let window, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
 
         let hosting = NSHostingController(rootView: DiagnosticsView(model: model))
         let window = NSWindow(contentViewController: hosting)
         window.title = "LidAwake Diagnostics"
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 560, height: 420))
         window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 400, height: 260)
         window.center()
+        window.setFrameAutosaveName("LidAwakeDiagnostics")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window

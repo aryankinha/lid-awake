@@ -38,7 +38,6 @@ enum Theme {
     static let panelWidth: CGFloat = 360
     static let primaryRadius: CGFloat = 16
     static let groupRadius: CGFloat = 14
-    static let rowRadius: CGFloat = 7
     static let hairline = Color.primary.opacity(0.08)
     static let primaryFill = Color.primary.opacity(0.045)
     static let groupFill = Color.primary.opacity(0.035)
@@ -191,8 +190,6 @@ struct SettingsToggleRow: View {
     @Binding var isOn: Bool
     var disabled = false
 
-    @State private var hovering = false
-
     var body: some View {
         Toggle(isOn: $isOn) {
             HStack(spacing: 8) {
@@ -201,15 +198,8 @@ struct SettingsToggleRow: View {
             }
         }
         .toggleStyle(.switch)
-        .tint(Theme.activeTrack)
         .padding(.horizontal, 16)
         .frame(minHeight: 38)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-                .fill(Color.primary.opacity(hovering && !disabled ? 0.035 : 0))
-                .padding(.horizontal, 6)
-        )
-        .onHover { hovering = $0 }
         .disabled(disabled)
         .accessibilityLabel(title)
         .accessibilityHint(subtitle ?? "")
@@ -279,8 +269,6 @@ struct NoticeBanner: View {
     var actionDisabled = false
     var dismiss: (() -> Void)?
 
-    @FocusState private var actionFocused: Bool
-
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
@@ -308,18 +296,8 @@ struct NoticeBanner: View {
                             .padding(.top, 2)
                     } else if let actionTitle, let action {
                         Button(actionTitle, action: action)
-                            .buttonStyle(NoticeActionStyle(tint: tone.tint))
-                            .focused($actionFocused)
-                            .overlay(
-                                RoundedRectangle(
-                                    cornerRadius: Theme.rowRadius,
-                                    style: .continuous
-                                )
-                                .strokeBorder(
-                                    Color.accentColor.opacity(actionFocused ? 0.9 : 0),
-                                    lineWidth: 2
-                                )
-                            )
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                             .padding(.top, 2)
                     }
                 }
@@ -348,25 +326,68 @@ struct NoticeBanner: View {
     }
 }
 
-struct NoticeActionStyle: ButtonStyle {
-    let tint: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 6)
-            .frame(minHeight: 30)
-            .contentShape(Rectangle())
-            .opacity(configuration.isPressed ? 0.65 : 1)
+extension View {
+    func reportHeight(_ onChange: @escaping (CGFloat) -> Void) -> some View {
+        onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: onChange)
     }
 }
 
-struct PanelHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+struct PanelScrollBehavior: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 13.3, *) {
+            content.scrollBounceBehavior(.basedOnSize)
+        } else {
+            content
+        }
+    }
+}
+
+struct PanelScreenReader: NSViewRepresentable {
+    var onChange: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ScreenView {
+        ScreenView()
+    }
+
+    func updateNSView(_ view: ScreenView, context: Context) {
+        view.onChange = onChange
+        view.reportScreen()
+    }
+
+    final class ScreenView: NSView {
+        var onChange: ((CGFloat) -> Void)?
+        private var lastHeight: CGFloat?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let center = NotificationCenter.default
+            center.removeObserver(self)
+            if let window {
+                center.addObserver(
+                    self, selector: #selector(screenDidChange(_:)),
+                    name: NSWindow.didChangeScreenNotification, object: window
+                )
+                center.addObserver(
+                    self, selector: #selector(screenDidChange(_:)),
+                    name: NSApplication.didChangeScreenParametersNotification, object: nil
+                )
+            }
+            reportScreen()
+        }
+
+        @objc private func screenDidChange(_ notification: Notification) {
+            reportScreen()
+        }
+
+        func reportScreen() {
+            guard let window else { return }
+            let screen = window.screen
+                ?? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+                ?? NSScreen.main
+            guard let height = screen?.visibleFrame.height, height != lastHeight else { return }
+            lastHeight = height
+            DispatchQueue.main.async { [weak self] in self?.onChange?(height) }
+        }
     }
 }
 
@@ -420,19 +441,6 @@ enum TimerChoice: String, CaseIterable, Identifiable {
         case .oneHour: self = .oneHour
         case .twoHours: self = .twoHours
         case .fourHours: self = .fourHours
-        }
-    }
-
-    init(seconds: TimeInterval?) {
-        guard let seconds else {
-            self = .eightHours
-            return
-        }
-        switch Int(seconds.rounded()) {
-        case 3600: self = .oneHour
-        case 7200: self = .twoHours
-        case 14400: self = .fourHours
-        default: self = .eightHours
         }
     }
 

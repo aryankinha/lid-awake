@@ -4,10 +4,6 @@ import AppKit
 import SwiftUI
 @preconcurrency import LidAwakeCore
 
-extension SleepMode: Identifiable {
-    public var id: String { rawValue }
-}
-
 enum TimerPreset: String, CaseIterable, Identifiable {
     case off
     case oneHour
@@ -80,7 +76,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isBusy = false
     private(set) var terminationPrepared = false
 
-    /// The MenuBarExtra label observes this tiny object, not AppModel. It only
+    /// The status item observes this tiny object, which only
     /// changes when the symbol or accessibility label actually changes.
     let menuIconModel = MenuBarIconModel()
     @Published var mode: SleepMode = .clamshell {
@@ -675,12 +671,11 @@ final class AppModel: ObservableObject {
         return false
     }
 
-    var menuIcon: String {
-        if isStopping || externalSession || !watchdogHealthy || externalSleepDisabled {
-            return "exclamationmark.triangle.fill"
+    var menuIcon: MenuBarIconModel.Icon {
+        if isStopping || presentation.isWarning || errorMessage != nil {
+            return .attention
         }
-        if errorMessage != nil { return "exclamationmark.triangle.fill" }
-        return isActive ? "bolt.fill" : "laptopcomputer"
+        return isActive ? .active : .idle
     }
 
     var menuAccessibilityLabel: String {
@@ -693,6 +688,10 @@ final class AppModel: ObservableObject {
             return "LidAwake: another session is active"
         }
         if !watchdogHealthy { return "LidAwake: the safety check needs repair" }
+        if presentation.isClamshellWarning {
+            return "LidAwake on: lid-close sleep may still occur"
+        }
+        if let risk = presentation.riskNote { return "LidAwake on: \(risk)" }
         if isActive {
             let modeText = activeSession?.mode == .system
                 ? "all sleep blocked"
@@ -703,6 +702,7 @@ final class AppModel: ObservableObject {
             return "LidAwake on, \(modeText)"
         }
         if externalSleepDisabled { return "LidAwake off: sleep is already off" }
+        if presentation.isWarning { return "LidAwake off: \(presentation.statusText)" }
         return "LidAwake off, normal sleep"
     }
 
@@ -885,14 +885,21 @@ final class AppModel: ObservableObject {
 
     private func reconcileOwnership() {
         guard controller.active != nil else { return }
-        let lease = try? store.load()
-        guard let lease else {
-            // The controller may still hold the kernel flag; let disarm() own
-            // the outcome and error message.
+        let lease: SessionLease?
+        do {
+            lease = try store.load()
+        } catch {
             attemptDisarm(.error)
             return
         }
-        if lease.pid != SystemInfo.processID || lease.bootID != SystemInfo.bootID {
+        guard let lease else {
+            controller.abandonLocalSession()
+            caffeinate.stop()
+            errorMessage = nil
+            lastEvent = DisarmEvent(reason: .watchdog)
+            return
+        }
+        if !controller.owns(lease) {
             controller.abandonLocalSession()
             caffeinate.stop()
             errorMessage = "Another LidAwake process took ownership of the session."
@@ -901,7 +908,7 @@ final class AppModel: ObservableObject {
 
     private func syncMenuIcon() {
         menuIconModel.update(
-            symbol: menuIcon,
+            icon: menuIcon,
             accessibilityLabel: menuAccessibilityLabel
         )
     }

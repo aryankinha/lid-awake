@@ -36,23 +36,24 @@ SIP, kernel extensions, or any unrelated power setting.
 
 ## Interface
 
-The menu bar shows a laptop when LidAwake is off, a bolt when a session is
-active, and a warning triangle when it needs attention.
+The menu bar shows a laptop outline. A bolt inside the laptop indicates an
+active session, and an exclamation mark indicates a state that needs attention.
 
 - **Keep this Mac awake** shows the current session, remaining time and safety notices.
 - **Session settings** cover the timer, battery floor, thermal protection and Trip Mode.
 - **Advanced** contains sleep control, Open at Login and Diagnostics.
 
-The panel follows the macOS menu bar window appearance and uses native controls.
-It fits its content and adds scrolling on shorter displays. The Quit action stays
-visible below the scrolling area. The files in `docs/` show the original 1.0 UI.
+The native macOS popover stays anchored to the menu bar icon as its content resizes.
+It fits its content and scrolls when the available display height is too short. The Quit action stays
+visible below the scrolling area. Click anywhere on the Advanced row to expand it.
+Click outside the popover or press Escape to close it. The files in `docs/` show the original 1.0 UI.
 
 ---
 
 ## How it works
 
 ```text
-SwiftUI MenuBarExtra app
+AppKit menu bar popover with SwiftUI content
   ├─ SessionController ── IOKit selector 12 (default, no root)
   ├─ caffeinate -i -w PID ─ revocable idle-sleep helper
   ├─ SystemMonitor ───── IOKit: SleepDisabled, clamshell, battery

@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 let outputDirectory = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ".")
-let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+let scratch = outputDirectory.appendingPathComponent(".icon-\(UUID().uuidString)", isDirectory: true)
 let icns = outputDirectory.appendingPathComponent("LidAwake.icns")
 try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: scratch) }
@@ -30,8 +30,8 @@ func makeMaster() -> NSImage {
     tile.addClip()
 
     let gradient = NSGradient(
-        starting: NSColor(srgbRed: 0.04, green: 0.57, blue: 0.57, alpha: 1),
-        ending: NSColor(srgbRed: 0.02, green: 0.20, blue: 0.32, alpha: 1)
+        starting: NSColor(srgbRed: 0.07, green: 0.66, blue: 0.77, alpha: 1),
+        ending: NSColor(srgbRed: 0.04, green: 0.13, blue: 0.37, alpha: 1)
     )!
     gradient.draw(in: tileRect, angle: -55)
 
@@ -41,20 +41,23 @@ func makeMaster() -> NSImage {
     rim.lineWidth = 8
     rim.stroke()
 
-    // Use a bold laptop outline so the silhouette remains readable at 16 pt.
-    let screen = NSBezierPath(
-        roundedRect: NSRect(x: 271, y: 350, width: 482, height: 321),
-        xRadius: 35,
-        yRadius: 35
-    )
-    NSColor(srgbRed: 0.86, green: 1.0, blue: 0.98, alpha: 1).setStroke()
-    screen.lineWidth = 39
+    // Keep the same laptop silhouette as the menu bar item, with a lit display.
+    let screenRect = NSRect(x: 255, y: 354, width: 514, height: 356)
+    let screen = NSBezierPath(roundedRect: screenRect, xRadius: 42, yRadius: 42)
+    NSGradient(
+        starting: NSColor(srgbRed: 0.10, green: 0.38, blue: 0.57, alpha: 1),
+        ending: NSColor(srgbRed: 0.01, green: 0.15, blue: 0.31, alpha: 1)
+    )?.draw(in: screen, angle: -90)
+    NSColor(srgbRed: 0.84, green: 0.97, blue: 1.0, alpha: 1).setStroke()
+    screen.lineWidth = 36
     screen.stroke()
 
-    let base = NSBezierPath(roundedRect: NSRect(x: 209, y: 269, width: 606, height: 45),
-                            xRadius: 22, yRadius: 22)
-    NSColor(srgbRed: 0.86, green: 1.0, blue: 0.98, alpha: 1).setFill()
-    base.fill()
+    let base = NSBezierPath(roundedRect: NSRect(x: 187, y: 270, width: 650, height: 48),
+                            xRadius: 24, yRadius: 24)
+    NSGradient(
+        starting: .white,
+        ending: NSColor(srgbRed: 0.52, green: 0.78, blue: 0.93, alpha: 1)
+    )?.draw(in: base, angle: -90)
 
     let bolt = NSBezierPath()
     bolt.move(to: NSPoint(x: 555, y: 638))

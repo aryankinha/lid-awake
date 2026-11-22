@@ -5,6 +5,7 @@ public protocol LeaseStoring: AnyObject {
     func load() throws -> SessionLease?
     func claim(_ lease: SessionLease) throws
     func save(_ lease: SessionLease?) throws
+    func update(_ change: (inout SessionLease?) throws -> Void) throws
     func saveHealth(_ health: WatchdogHealth) throws
     func loadHealth() throws -> WatchdogHealth?
     func appendLog(_ line: String)
@@ -14,6 +15,13 @@ public extension LeaseStoring {
     func claim(_ lease: SessionLease) throws {
         try requireUnownedState(load())
         try save(lease)
+    }
+
+    func update(_ change: (inout SessionLease?) throws -> Void) throws {
+        let before = try load()
+        var after = before
+        try change(&after)
+        if before != after { try save(after) }
     }
 }
 
@@ -59,6 +67,22 @@ public final class FileLeaseStore: LeaseStoring {
         try withLock {
             try requireUnownedState(readLease())
             try writeLease(lease)
+        }
+    }
+
+    /// Keep ownership validation and changes to the shared sleep state under the same lock.
+    public func update(_ change: (inout SessionLease?) throws -> Void) throws {
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        try withLock {
+            let before = try readLease()
+            var after = before
+            try change(&after)
+            guard before != after else { return }
+            if let after {
+                try writeLease(after)
+            } else {
+                try fileManager.removeItem(at: leaseURL)
+            }
         }
     }
 

@@ -47,7 +47,6 @@ public final class PmsetController {
 
     private struct ProcessResult {
         var status: Int32
-        var stdout: String
         var stderr: String
     }
 
@@ -63,24 +62,21 @@ public final class PmsetController {
         environment["LC_ALL"] = "C"
         process.environment = environment
 
-        let stdout = Pipe()
         let stderr = Pipe()
-        process.standardOutput = stdout
+        process.standardOutput = FileHandle.nullDevice
         process.standardError = stderr
 
         do {
             try process.run()
         } catch {
-            return ProcessResult(status: -1, stdout: "", stderr: error.localizedDescription)
+            return ProcessResult(status: -1, stderr: error.localizedDescription)
         }
 
-        let outData = stdout.fileHandleForReading.readDataToEndOfFile()
         let errData = stderr.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
         return ProcessResult(
             status: process.terminationStatus,
-            stdout: String(data: outData, encoding: .utf8) ?? "",
             stderr: String(data: errData, encoding: .utf8) ?? ""
         )
     }

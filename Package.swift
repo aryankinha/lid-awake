@@ -25,6 +25,10 @@ let package = Package(
             path: "Sources/LidAwakeCtl"
         ),
         .testTarget(
+            name: "LidAwakeAppTests",
+            dependencies: ["LidAwakeApp"]
+        ),
+        .testTarget(
             name: "LidAwakeCoreTests",
             dependencies: ["LidAwakeCore"],
             path: "Tests/LidAwakeCoreTests"

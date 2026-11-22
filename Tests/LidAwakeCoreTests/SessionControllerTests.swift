@@ -172,7 +172,7 @@ final class SessionControllerTests: XCTestCase {
 
         XCTAssertThrowsError(try controller.disarm(reason: .battery))
         XCTAssertTrue(store.lease?.stopping ?? false)
-        XCTAssertNil(store.lease?.helperPID)
+        XCTAssertEqual(store.lease?.helperPID, 999)
         XCTAssertTrue(controller.stopping)
 
         now = now.addingTimeInterval(5)
@@ -547,6 +547,36 @@ final class FileLeaseStoreTests: XCTestCase {
         XCTAssertEqual(try store.load(), lease)
         try store.save(nil)
         XCTAssertNil(try store.load())
+    }
+
+    func testRenewalDoesNotRecreateOrReplaceRecoveredLease() throws {
+        let store = FileLeaseStore(directory: directory)
+        let system = FakeSystem()
+        let controller = SessionController(system: system, leaseStore: store, bootID: "boot", pid: 123)
+        let config = SessionConfig(mode: .clamshell, duration: 60)
+        try controller.arm(config: config)
+        let original = try XCTUnwrap(store.load())
+
+        let watchdog = WatchdogRunner(
+            leaseStore: store, system: system, bootID: "boot", processAlive: { _ in false }
+        )
+        guard case .recovered = watchdog.runOnce() else {
+            return XCTFail("Watchdog did not recover the old session")
+        }
+        controller.renewLease()
+        XCTAssertNil(try store.load())
+
+        let next = SessionController(system: system, leaseStore: store, bootID: "boot", pid: 123)
+        try next.arm(config: config)
+        let replacement = try XCTUnwrap(store.load())
+        XCTAssertNotEqual(replacement.ownerID, original.ownerID)
+        controller.renewLease()
+        XCTAssertEqual(try store.load(), replacement)
+
+        try controller.disarm(reason: .user)
+        XCTAssertNil(controller.active)
+        XCTAssertEqual(try store.load(), replacement)
+        XCTAssertEqual(system.clamshellCalls, [true, false, true])
     }
 
     func testHealthRoundTrip() throws {

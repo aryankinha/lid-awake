@@ -4,7 +4,8 @@ import AppKit
 struct DiagnosticsView: View {
     @ObservedObject var model: AppModel
     @State private var text = ""
-    @State private var copied = false
+    @State private var copyFeedback: String?
+    @State private var feedbackTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,19 +13,28 @@ struct DiagnosticsView: View {
                 Text("Diagnostics")
                     .font(.headline)
                 Spacer()
-                if copied {
-                    Text("Copied")
+                if let copyFeedback {
+                    Text(copyFeedback)
                         .font(.caption)
                         .foregroundStyle(Theme.secondaryText)
                         .transition(.opacity)
                 }
-                Button("Refresh") { refresh() }
-                Button("Copy") { copy() }
+                Button {
+                    refresh()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                Button {
+                    copy()
+                } label: {
+                    Label("Copy", systemImage: "document.on.document")
+                }
                 Button("Done") {
                     NSApp.keyWindow?.performClose(nil)
                 }
                 .keyboardShortcut(.cancelAction)
             }
+            .buttonStyle(.bordered)
             .padding(16)
 
             Divider()
@@ -37,21 +47,29 @@ struct DiagnosticsView: View {
                     .padding(16)
             }
         }
-        .frame(width: 560, height: 420)
+        .frame(minWidth: 400, minHeight: 260)
         .onAppear { refresh() }
+        .onDisappear { feedbackTask?.cancel() }
     }
 
     private func refresh() {
         text = model.diagnostics
-        copied = false
+        feedbackTask?.cancel()
+        copyFeedback = nil
     }
 
     private func copy() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        copied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            copied = false
+        let copied = NSPasteboard.general.setString(text, forType: .string)
+        copyFeedback = copied ? "Copied" : "Copy failed"
+        feedbackTask?.cancel()
+        feedbackTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(1.5))
+                copyFeedback = nil
+            } catch {
+                // A newer copy action or a closing window superseded this one.
+            }
         }
     }
 }

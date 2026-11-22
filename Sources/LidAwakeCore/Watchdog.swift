@@ -144,45 +144,36 @@ public final class WatchdogRunner {
     }
 
     private func clear(lease: SessionLease, reason: String) -> WatchdogAction {
-        // Fence the load-then-clear race: if the app armed a new session or
-        // renewed this one after the watchdog loaded it, do not revoke it.
         do {
-            guard let latest = try leaseStore.load() else {
-                return .healthy
-            }
-            if latest.ownerID != lease.ownerID ||
-                latest.updatedAt != lease.updatedAt ||
-                latest.stopping != lease.stopping {
-                leaseStore.appendLog("WATCHDOG skipped clear; lease changed during evaluation")
-                return .healthy
-            }
-        } catch {
-            leaseStore.appendLog("WATCHDOG skipped clear; lease unreadable during fencing check")
-            return .clearFailed(reason: "lease unreadable during fencing check")
-        }
+            var recovered = false
+            try leaseStore.update { latest in
+                // Hold the store lock from the ownership check through restore
+                // so a renewal or a new session cannot interleave with recovery.
+                guard latest == lease else { return }
 
-        // Release the revocable idle-sleep helper before touching the kernel.
-        // Validate the process path so a recycled PID is never signalled.
-        if let helperPID = lease.helperPID,
-           helperPID > 0,
-           isHelperProcess(helperPID) {
-            kill(helperPID, SIGTERM)
-        }
+                if let helperPID = lease.helperPID,
+                   helperPID > 0,
+                   lease.bootID == bootID,
+                   isHelperProcess(helperPID) {
+                    kill(helperPID, SIGTERM)
+                }
 
-        do {
-            switch lease.mode {
-            case .clamshell:
-                try system.setClamshellOverride(false)
-            case .system:
-                if lease.ownsPmset {
-                    try system.setSystemSleepDisabled(false)
-                    let after = system.snapshot()
-                    guard after.sleepDisabledKnown && !after.sleepDisabled else {
-                        throw LidAwakeError.pmsetFailed(-1, "pmset did not restore normal sleep (state unknown or still on)")
+                switch lease.mode {
+                case .clamshell:
+                    try system.setClamshellOverride(false)
+                case .system:
+                    if lease.ownsPmset {
+                        try system.setSystemSleepDisabled(false)
+                        let after = system.snapshot()
+                        guard after.sleepDisabledKnown && !after.sleepDisabled else {
+                            throw LidAwakeError.pmsetFailed(-1, "pmset did not restore normal sleep (state unknown or still on)")
+                        }
                     }
                 }
+                latest = nil
+                recovered = true
             }
-            try? leaseStore.save(nil)
+            guard recovered else { return .healthy }
             leaseStore.appendLog("WATCHDOG cleared reason=\(reason) mode=\(lease.mode.rawValue)")
             return .recovered(reason: reason)
         } catch {

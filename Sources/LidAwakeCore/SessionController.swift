@@ -21,7 +21,7 @@ public final class SessionController {
     private let now: () -> Date
     private let bootID: String
     private let pid: Int32
-    private let ownerID = UUID()
+    private var ownerID = UUID()
 
     public init(
         system: SystemControlling,
@@ -44,6 +44,7 @@ public final class SessionController {
         if let active { return active }
 
         stopping = false
+        ownerID = UUID()
         let start = now()
         let deadline = effectiveDeadline(config: config, start: start)
         let before = system.snapshot()
@@ -115,46 +116,41 @@ public final class SessionController {
     /// Stop a session and restore normal sleep. If the restore command fails,
     /// the ownership lease is kept so the watchdog can retry.
     public func disarm(reason: DisarmReason) throws {
-        guard let session = active else {
-            // Do not delete a lease owned by another process or boot.
-            if let lease = try? leaseStore.load(),
-               lease.pid == pid,
-               lease.bootID == bootID {
-                try? leaseStore.save(nil)
-            }
-            stopping = false
-            helperPID = nil
-            return
-        }
+        guard let session = active else { return }
 
         stopping = true
-        var stoppingLease = makeLease(session: session, stopping: true)
-        stoppingLease.updatedAt = now()
-        try? leaseStore.save(stoppingLease)
-
+        var restoreError: Error?
+        var restored = false
         do {
-            switch session.mode {
-            case .clamshell:
-                try system.setClamshellOverride(false)
-            case .system:
-                try system.setSystemSleepDisabled(false)
-                let after = system.snapshot()
-                guard after.sleepDisabledKnown && !after.sleepDisabled else {
-                    throw LidAwakeError.pmsetFailed(-1, "pmset did not restore sleep (state unknown or still on)")
+            try leaseStore.update { lease in
+                guard let existing = lease, owns(existing) else { return }
+                do {
+                    switch session.mode {
+                    case .clamshell:
+                        try system.setClamshellOverride(false)
+                    case .system:
+                        try system.setSystemSleepDisabled(false)
+                        let after = system.snapshot()
+                        guard after.sleepDisabledKnown && !after.sleepDisabled else {
+                            throw LidAwakeError.pmsetFailed(-1, "pmset did not restore sleep (state unknown or still on)")
+                        }
+                    }
+                    restored = true
+                    lease = nil
+                } catch {
+                    // Keep the existing helper identity available to the watchdog
+                    // while the app is still holding that helper.
+                    var pending = existing
+                    pending.stopping = true
+                    pending.updatedAt = now()
+                    lease = pending
+                    restoreError = error
                 }
             }
-            active = nil
-            stopping = false
-            helperPID = nil
-            try? leaseStore.save(nil)
-            leaseStore.appendLog("DISARM reason=\(reason.rawValue)")
+            if let restoreError { throw restoreError }
+            abandonLocalSession()
+            if restored { leaseStore.appendLog("DISARM reason=\(reason.rawValue)") }
         } catch {
-            // Keep active + stopping. The watchdog sees stopping and retries;
-            // renewLease must not rewrite a non-stopping lease.
-            // The app stops its caffeinate helper after this returns; drop the
-            // PID so the watchdog cannot later signal a reused PID.
-            self.helperPID = nil
-            try? leaseStore.save(makeLease(session: session, stopping: true))
             leaseStore.appendLog("DISARM failed reason=\(reason.rawValue) error=\(error.localizedDescription)")
             throw error
         }
@@ -233,7 +229,14 @@ public final class SessionController {
     /// Called by the app every few seconds to keep the ownership lease fresh.
     public func renewLease() {
         guard let session = active else { return }
-        try? leaseStore.save(makeLease(session: session, stopping: stopping))
+        try? leaseStore.update { lease in
+            guard let existing = lease, owns(existing), existing.stopping == stopping else { return }
+            lease = makeLease(session: session, stopping: stopping)
+        }
+    }
+
+    public func owns(_ lease: SessionLease) -> Bool {
+        lease.ownerID == ownerID && lease.pid == pid && lease.bootID == bootID
     }
 
     /// Called at app launch. Returns a stale lease if one exists.
