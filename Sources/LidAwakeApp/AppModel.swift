@@ -87,10 +87,7 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(mode.rawValue, forKey: Keys.mode) }
     }
     @Published var timerPreset: TimerPreset = .twoHours {
-        didSet {
-            defaults.set(timerPreset.rawValue, forKey: Keys.timer)
-            durationOverride = nil
-        }
+        didSet { defaults.set(timerPreset.rawValue, forKey: Keys.timer) }
     }
     @Published var tripMode = true {
         didSet { defaults.set(tripMode, forKey: Keys.trip) }
@@ -112,7 +109,6 @@ final class AppModel: ObservableObject {
     private let notifications = NotificationService()
     private let caffeinate = CaffeinateHelper()
 
-    private var durationOverride: TimeInterval?
     private var uiTimer: Timer?
     private var leaseTimer: Timer?
     private var started = false
@@ -228,21 +224,16 @@ final class AppModel: ObservableObject {
     }
 
     func arm() {
+        arm(mode: mode, duration: timerPreset.seconds, tripMode: tripMode)
+    }
+
+    private func arm(mode: SleepMode, duration: TimeInterval?, tripMode: Bool) {
         guard !isActive, !isBusy else { return }
         guard !externalSession else {
             errorMessage = "Another LidAwake session is active. Turn it off there first."
             return
         }
         clearError()
-
-        // Consume any URL-specific duration now. An early preflight failure must
-        // never leave a hidden override that applies to a later normal turn-on.
-        let requestedDuration = durationOverride ?? timerPreset.seconds
-        durationOverride = nil
-        if let requestedDuration, !requestedDuration.isFinite || requestedDuration < 0 {
-            errorMessage = "The requested session duration is invalid."
-            return
-        }
 
         if externalSleepDisabled {
             errorMessage = "Sleep is already off outside LidAwake. Clear it before starting."
@@ -290,7 +281,7 @@ final class AppModel: ObservableObject {
 
         let config = SessionConfig(
             mode: mode,
-            duration: requestedDuration,
+            duration: duration,
             batteryFloor: batteryFloor,
             tripMode: tripMode,
             thermalGuard: thermalGuard,
@@ -329,7 +320,6 @@ final class AppModel: ObservableObject {
             try controller.disarm(reason: reason)
             isActive = false
             activeSession = nil
-            durationOverride = nil
             errorMessage = nil
             caffeinate.stop()
             if reason != .user && reason != .appQuit {
@@ -452,22 +442,33 @@ final class AppModel: ObservableObject {
             switch url.host {
             case "on", "arm":
                 guard !isActive else { continue }
-                if let minutes = query["minutes"].flatMap(Double.init), minutes.isFinite {
-                    if minutes <= 0 {
-                        timerPreset = .off
-                    } else {
-                        durationOverride = min(minutes, 8 * 60) * 60
+                var duration = timerPreset.seconds
+                if let rawMinutes = query["minutes"] {
+                    guard let minutes = Double(rawMinutes), minutes.isFinite, minutes >= 0 else {
+                        errorMessage = "Enter a valid number of minutes for this session."
+                        continue
                     }
+                    duration = minutes == 0 ? nil : min(minutes, 480) * 60
                 }
-                if query["trip"] == "0" { tripMode = false }
-                if query["trip"] == "1" { tripMode = true }
-                if let rawMode = query["mode"], let parsed = SleepMode(rawValue: rawMode) {
-                    mode = parsed
+                var requestedMode = mode
+                if let rawMode = query["mode"] {
+                    guard let value = SleepMode(rawValue: rawMode) else {
+                        errorMessage = "Use clamshell or system for the session mode."
+                        continue
+                    }
+                    requestedMode = value
                 }
-                arm()
+                var requestedTrip = tripMode
+                if let rawTrip = query["trip"] {
+                    guard rawTrip == "0" || rawTrip == "1" else {
+                        errorMessage = "Use 0 or 1 for Trip Mode."
+                        continue
+                    }
+                    requestedTrip = rawTrip == "1"
+                }
+                arm(mode: requestedMode, duration: duration, tripMode: requestedTrip)
             case "off", "disarm":
-                if isActive { disarm(reason: .user) }
-                durationOverride = nil
+                setActive(false)
             case "toggle":
                 setActive(!isActive)
             case "status", "diagnostics":
@@ -524,20 +525,14 @@ final class AppModel: ObservableObject {
                 errorMessage = "The session record can't be read, so quit was cancelled to avoid losing recovery."
                 return false
             }
-            if let lease, lease.bootID == SystemInfo.bootID {
-                let foreign = lease.pid != SystemInfo.processID
-                let live = foreign && SystemInfo.processIsAlive(lease.pid)
-                if live {
-                    // Never destroy another process's live safety state.
+            if let lease {
+                if lease.bootID == SystemInfo.bootID && !lease.stopping &&
+                    SystemInfo.processIsAlive(lease.pid) {
                     errorMessage = "Another LidAwake session is active. Turn it off there before quitting."
-                    return false
+                } else {
+                    errorMessage = "The safety check is still restoring normal sleep. Try quitting again in a moment."
                 }
-                if lease.stopping {
-                    // A stopping lease means a restore is still pending, even if
-                    // the owning process has exited. Leave the watchdog and lease.
-                    errorMessage = "Another session is still restoring normal sleep. Try quitting again in a moment."
-                    return false
-                }
+                return false
             }
         }
 

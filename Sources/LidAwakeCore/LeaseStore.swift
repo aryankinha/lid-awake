@@ -3,10 +3,26 @@ import Darwin
 
 public protocol LeaseStoring: AnyObject {
     func load() throws -> SessionLease?
+    func claim(_ lease: SessionLease) throws
     func save(_ lease: SessionLease?) throws
     func saveHealth(_ health: WatchdogHealth) throws
     func loadHealth() throws -> WatchdogHealth?
     func appendLog(_ line: String)
+}
+
+public extension LeaseStoring {
+    func claim(_ lease: SessionLease) throws {
+        try requireUnownedState(load())
+        try save(lease)
+    }
+}
+
+private func requireUnownedState(_ existing: SessionLease?) throws {
+    guard existing == nil else {
+        throw LidAwakeError.invalidLease(
+            "another session owns the sleep state or is waiting for recovery"
+        )
+    }
 }
 
 public final class FileLeaseStore: LeaseStoring {
@@ -34,30 +50,45 @@ public final class FileLeaseStore: LeaseStoring {
     }
 
     public func load() throws -> SessionLease? {
-        guard fileManager.fileExists(atPath: leaseURL.path) else { return nil }
-        return try withLock {
-            let data = try Data(contentsOf: leaseURL)
-            let lease = try decoder.decode(SessionLease.self, from: data)
-            guard lease.version == SessionLease.currentVersion else {
-                throw LidAwakeError.invalidLease("unsupported version \(lease.version)")
-            }
-            return lease
+        guard fileManager.fileExists(atPath: directory.path) else { return nil }
+        return try withLock { try readLease() }
+    }
+
+    public func claim(_ lease: SessionLease) throws {
+        try ensureDirectory()
+        try withLock {
+            try requireUnownedState(readLease())
+            try writeLease(lease)
         }
     }
 
     public func save(_ lease: SessionLease?) throws {
-        guard let lease else {
-            if fileManager.fileExists(atPath: leaseURL.path) {
-                try fileManager.removeItem(at: leaseURL)
+        if let lease {
+            try ensureDirectory()
+            try withLock { try writeLease(lease) }
+        } else if fileManager.fileExists(atPath: directory.path) {
+            try withLock {
+                if fileManager.fileExists(atPath: leaseURL.path) {
+                    try fileManager.removeItem(at: leaseURL)
+                }
             }
-            return
         }
-        try ensureDirectory()
-        try withLock {
-            let data = try encoder.encode(lease)
-            try data.write(to: leaseURL, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: leaseURL.path)
+    }
+
+    private func readLease() throws -> SessionLease? {
+        guard fileManager.fileExists(atPath: leaseURL.path) else { return nil }
+        let data = try Data(contentsOf: leaseURL)
+        let lease = try decoder.decode(SessionLease.self, from: data)
+        guard lease.version == SessionLease.currentVersion else {
+            throw LidAwakeError.invalidLease("unsupported version \(lease.version)")
         }
+        return lease
+    }
+
+    private func writeLease(_ lease: SessionLease) throws {
+        let data = try encoder.encode(lease)
+        try data.write(to: leaseURL, options: .atomic)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: leaseURL.path)
     }
 
     public func saveHealth(_ health: WatchdogHealth) throws {

@@ -181,17 +181,23 @@ case "arm":
         switch arguments[index] {
         case "--minutes":
             index += 1
-            if index < arguments.count, let value = Double(arguments[index]) { minutes = value }
+            guard index < arguments.count, let value = Double(arguments[index]),
+                  value.isFinite, value >= 0 else { usage() }
+            minutes = min(value, 480)
         case "--mode":
             index += 1
-            if index < arguments.count, let value = SleepMode(rawValue: arguments[index]) { mode = value }
+            guard index < arguments.count,
+                  let value = SleepMode(rawValue: arguments[index]) else { usage() }
+            mode = value
         case "--trip":
             tripMode = true
         case "--no-trip":
             tripMode = false
         case "--battery-floor":
             index += 1
-            if index < arguments.count, let value = Int(arguments[index]) { batteryFloor = value }
+            guard index < arguments.count, let value = Int(arguments[index]),
+                  (10...50).contains(value) else { usage() }
+            batteryFloor = value
         case "--no-thermal":
             thermalGuard = false
         default:
@@ -220,7 +226,7 @@ case "arm":
         while true {
             if let reason = controller.tick() {
                 print("AUTO-DISARM reason=\(reason.rawValue)")
-                try? controller.disarm(reason: reason)
+                try controller.disarm(reason: reason)
                 break
             }
             controller.renewLease()

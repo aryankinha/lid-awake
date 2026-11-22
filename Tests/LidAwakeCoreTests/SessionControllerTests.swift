@@ -114,6 +114,29 @@ final class SessionControllerTests: XCTestCase {
         XCTAssertTrue(store.lease?.stopping ?? false)
     }
 
+    func testNewSessionCannotReplacePendingRecovery() throws {
+        let system = FakeSystem()
+        let store = MemoryLeaseStore()
+        let original = makeController(system: system, leaseStore: store)
+        let config = SessionConfig(mode: .clamshell)
+        try original.arm(config: config)
+        var recovering = try XCTUnwrap(store.lease)
+        recovering.stopping = true
+        store.lease = recovering
+
+        let replacement = makeController(system: system, leaseStore: store)
+        XCTAssertThrowsError(try replacement.arm(config: config))
+        XCTAssertEqual(store.lease, recovering)
+        XCTAssertEqual(system.clamshellCalls, [true])
+    }
+
+    func testArmDoesNotOverwriteUnreadableLease() {
+        let system = FakeSystem()
+        let controller = SessionController(system: system, leaseStore: ThrowingLeaseStore())
+        XCTAssertThrowsError(try controller.arm(config: SessionConfig(mode: .clamshell)))
+        XCTAssertTrue(system.clamshellCalls.isEmpty)
+    }
+
     func testDisarmRestoresAndClearsLease() throws {
         let system = FakeSystem()
         let store = MemoryLeaseStore()

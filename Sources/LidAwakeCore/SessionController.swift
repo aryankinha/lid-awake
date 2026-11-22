@@ -44,7 +44,6 @@ public final class SessionController {
         if let active { return active }
 
         stopping = false
-        self.helperPID = helperPID
         let start = now()
         let deadline = effectiveDeadline(config: config, start: start)
         let before = system.snapshot()
@@ -63,16 +62,13 @@ public final class SessionController {
             hasSeenLidClosed: before.lidClosed
         )
 
-        if let existing = try? leaseStore.load(),
-           existing.pid != pid,
-           existing.bootID == bootID,
-           !existing.stopping,
-           SystemInfo.processIsAlive(existing.pid) {
-            throw LidAwakeError.invalidLease("another live LidAwake session owns the sleep state")
+        self.helperPID = helperPID
+        do {
+            try leaseStore.claim(makeLease(session: session, stopping: false))
+        } catch {
+            self.helperPID = nil
+            throw error
         }
-
-        let lease = makeLease(session: session, stopping: false)
-        try leaseStore.save(lease)
 
         do {
             switch config.mode {
@@ -93,7 +89,13 @@ public final class SessionController {
             case .clamshell:
                 do { try system.setClamshellOverride(false) } catch { rollbackFailed = true }
             case .system:
-                do { try system.setSystemSleepDisabled(false) } catch { rollbackFailed = true }
+                do {
+                    try system.setSystemSleepDisabled(false)
+                    let after = system.snapshot()
+                    rollbackFailed = !after.sleepDisabledKnown || after.sleepDisabled
+                } catch {
+                    rollbackFailed = true
+                }
             }
             self.helperPID = nil
             if rollbackFailed {
