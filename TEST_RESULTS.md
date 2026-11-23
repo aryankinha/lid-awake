@@ -5,10 +5,11 @@ Machine: MacBook Pro `Mac15,3`, Apple M3, 8 GB
 OS: macOS 27.2 (26B123)
 FileVault: Off
 Screen-lock delay at test time: 300 seconds
-Initial system state: `SleepDisabled 1` (set outside LidAwake)
-Final UI verification note: the Mac was at the lock screen, so live click/scroll
-and menu-bar icon capture remain pending; offscreen AppKit renders and automated
-tests are captured below.
+Initial system state at the start of testing: `SleepDisabled 1` (set outside
+LidAwake; later cleared). Final state: `SleepDisabled 0`, no lease, watchdog running.
+Final UI verification: live first-open, ON/OFF, Advanced, Diagnostics reuse and
+focus-restore tests passed; evidence is in 2c. The earlier lock-screen note is
+historical.
 
 Legend: **A** = automated, **S** = simulated in unit tests, **R** = real hardware.
 
@@ -21,13 +22,11 @@ The app icon is a generated 1024px macOS rounded-square asset, copied into
 16/32/64/128/256/512/1024 variants render legibly; the 64px and 32px previews were
 visually inspected. `codesign --verify --strict` passes.
 
-The redesigned panel is captured by hosting `MenuBarView` in an offscreen
-`NSWindow` and using `cacheDisplay`, so native AppKit switches, pop-up menus and
-scrollbars appear instead of `ImageRenderer` placeholders. The 2× renders are in
-`docs/`: `ui-dark-collapsed.png`, `ui-dark-advanced.png`,
-`ui-light-collapsed.png`, `ui-light-advanced.png`. The current warning state shows
-an external `SleepDisabled` flag and the intentionally disabled switch; it is an
-edge-case capture, not the normal off state.
+The current panel is captured live from the running `NSPopover` at 2×. The images
+are in `docs/`: `ui-dark-collapsed.png`, `ui-dark-active.png` and
+`ui-dark-advanced.png` (386 pt including the system popover chrome). They show the
+normal off, active and Advanced states. Light mode uses the same semantic system
+tokens; a separate light capture was not taken.
 
 ## 1b. Build and signing — A/R
 
@@ -50,10 +49,10 @@ dist/LidAwake.app: satisfies its Designated Requirement
 
 ```text
 $ swift test
-Executed 58 tests, with 0 failures (0 unexpected)
+Executed 68 tests, with 0 failures (0 unexpected)
 ```
 
-The original 30 core tests still pass. Added 28 tests across `SessionPresentation` and `SessionController` for
+The current suite is 68 tests: 61 core (3 lease, 21 session, 27 presentation, 10 watchdog) plus 7 app/popover tests. The original 30 core tests still pass; the additional presentation and safety cases cover
 the redesigned copy and state logic: off/on, lid open/closed, system mode with
 Trip Mode on, clamshell-block warning, external session, restoring, low battery,
 charging exception, thermal pressure, unknown battery, external sleep flag,
@@ -88,7 +87,11 @@ Covered:
 
 ---
 
-## 2b. Redesigned UI and reported bugs — A (live interaction pending)
+## 2b. Earlier MenuBarExtra redesign — historical
+
+> This section describes the earlier SwiftUI `MenuBarExtra` iteration. The current
+> app uses a custom `NSStatusItem` + `NSPopover` (`MenuBarController`); current
+> evidence is in 2c below.
 
 Code and static evidence:
 
@@ -119,12 +122,65 @@ Code and static evidence:
   battery/timer pickers, toggles, Advanced and Quit. An external sleep warning is
   stated once in the primary module with one Clear action.
 
-Live click/scroll/flicker capture is pending because the Mac is at the lock screen;
-the offscreen renders and code paths above are the evidence captured so far.
+Live click/scroll/flicker capture was pending during that earlier iteration; the
+current live evidence is in 2c below.
 
-Current environment note: `SleepDisabled 1` is set outside LidAwake, so the panel
-correctly shows the warning and disables the switch until an administrator clears
-it. This is the intended edge-case behavior.
+At that time an external `SleepDisabled 1` flag was set, so that iteration showed
+the warning and disabled the switch. The current environment has `SleepDisabled 0`;
+the warning remains an intentional edge-case path.
+
+## 2c. Popover jitter, key-window paint, and Apple palette — A/R
+
+- **First open:** the controller seeds the screen height synchronously, premeasures
+  the SwiftUI fitting size before `popover.show`, and applies the cached/measured
+  height before the first visible frame. A sampler was started and printed `READY`
+  **before** the status-item click; the first visible frame was already the final
+  collapsed height:
+
+  ```text
+  READY
+  t=0.257 frame=839.0,28.0 386.0x497.0 FIRST
+  t=1.565 frame=839.0,28.0 386.0x617.0 deltaY=0.00 deltaH=120.00
+  samples=243
+  ```
+
+  The first visible frame was already the final collapsed height; expanding Advanced
+  produced exactly one step to 617 pt with the top edge fixed. There were no
+  intermediate sizes, so the panel does not load low and pull upward. The fallback
+  seed is the measured 497 pt collapsed height, capped before show on short displays;
+  `PopoverLayout` has tests for both.
+- **Key-window paint:** `showPopover` asks for app activation as a best effort (for
+  older macOS) and makes the popover window key. On macOS 27 the accessory app stays
+  inactive while another app is frontmost, but the key popover already paints the
+  active accent controls. The first **inside** click still activates LidAwake; that
+  is normal for this accessory app. `popoverDidClose` returns focus to the
+  previously frontmost app when the dismissal leaves LidAwake active (verified with
+  Escape returning to Brave).
+- **Diagnostics reuse:** minimizing `LidAwake Diagnostics` and reopening it from
+  Advanced deminiaturized the existing window (`AXMinimized=0`) instead of creating a
+  duplicate; `Done` closed it. Verified live via the Accessibility tree.
+- **ON/OFF:** the stable logs cover the active-to-off transition at `y = 28`:
+  `545 → 497` pt with `deltaY=0.00`; the active-line/footer content accounts for the
+  height difference. The earlier `497 → 545 → 497` wording was not supported by the
+  log's start time and has been corrected.
+- **Palette:** fixed-RGB brown/green text tokens were removed. Text uses native
+  label/secondary/tertiary hierarchy; controls use `controlAccentColor`; status
+  dots/glyphs use system green/orange/red; hairlines use `separatorColor`; group
+  fills are neutral. The active card wash was removed. The status footer hides the
+  normal `Nominal` thermal word, leaving e.g. `60% · Battery · Lid open`.
+- **Progress:** the native linear `ProgressView` drew a stray red dot at its leading
+  edge on macOS 27.2; replaced with a thin accent capsule bar.
+- **Evidence:** live 2× captures `docs/ui-dark-collapsed.png` (386×497 pt including
+  chrome), `docs/ui-dark-active.png` (386×545) and `docs/ui-dark-advanced.png`
+  (386×617); frame logs `/tmp/lidawake-final-open-idle2.log` and
+  `/tmp/lidawake-frame-final.log`. The active capture is a live 2-minute
+  `lidawake://on` session; it was disarmed with `lidawake://off`, and the final
+  status showed `lease: none`, `SleepDisabled 0`, no `caffeinate`, and the watchdog
+  still loaded.
+- **Install/cleanup:** installed executable hash equals `dist`; the bundled README
+  matches the repo; the disposable `build/ui-check`, `build/anchor-check` and
+  `build/interaction-check` harnesses and the stale rollback bundle were removed.
+  One current rollback bundle is retained.
 
 ## 3. CLI status and selector call — A/R
 
@@ -379,7 +435,7 @@ Installing the user-level safety watchdog
 Launching LidAwake
 ```
 
-Latest uninstall test was run while a session was armed:
+An earlier uninstall test was run while a session was armed and an external flag was present:
 
 ```text
 $ ~/Applications/LidAwake.app/Contents/Resources/uninstall.sh
@@ -402,14 +458,12 @@ helper_gone
 SleepDisabled 1
 ```
 
-The external `SleepDisabled 1` was intentionally left alone and the uninstaller
-printed the exact command to clear it. This is correct ownership behavior, not an
-uninstall failure. The uninstaller now stops the GUI before removing the watchdog
-and removes the optional boot daemon/script even if only one fallback file exists.
-
-The external `SleepDisabled 1` was intentionally left alone and the uninstaller
-printed the exact command to clear it. This is correct ownership behavior, not an
-uninstall failure.
+At that time the external `SleepDisabled 1` was intentionally left alone and the
+uninstaller printed the exact command to clear it. This is correct ownership
+behavior, not an uninstall failure. The uninstaller now stops the GUI before
+removing the watchdog and removes the optional boot daemon/script even if only one
+fallback file exists. The current environment was re-checked after the final
+install: `SleepDisabled 0`, no lease.
 
 ---
 

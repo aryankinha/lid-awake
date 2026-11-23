@@ -30,16 +30,16 @@ hardware, [ ] not done.
 - [x] System-wide flag loss detected during a system session; wake grace avoids false watchdog stops
 - [x] Developer render URL inert without `LIDAWAKE_RENDER=1`
 - [x] Persistent last-stop explanation for battery, thermal, timer, lid, watchdog and error stops
-- [x] Native menu pickers/toggles; adaptive light/dark text and semantic colors
-- [x] Full-width 44 pt Advanced hit target with expanded/collapsed accessibility value
-- [x] Finite measured ScrollView, visible scrollbar and "Scroll for more" overflow hint
-- [x] Menu bar label observes a separate icon model; fixed 18×18 frame, no inherited animation
-- [x] Separate AppKit diagnostics window; async clear/repair/Open-at-Login actions
-- [x] Offscreen 2× AppKit captures for light/dark, collapsed/advanced in `docs/`
-- [x] 58 unit tests pass
-- [~] Live click/scroll/flicker capture pending because the Mac was locked during final verification
+- [x] Native menu pickers/toggles; Apple semantic text and accent colors
+- [x] Full-width Advanced disclosure with `contentShape` and expanded/collapsed accessibility value
+- [x] Measured ScrollView with screen cap; Advanced fits on this display and scrolls on shorter displays
+- [x] NSStatusItem button observes a separate icon model; template laptop glyph, state-only updates
+- [x] Separate AppKit diagnostics window; reuses/deminiaturizes an existing window; async clear/repair/Open-at-Login actions
+- [x] Live dark popover captures (collapsed/active/Advanced) in `docs/`
+- [x] 68 unit tests pass (61 core + 7 app)
+- [x] Pre-click first-open sampler, ON/OFF, Advanced and top-edge frame capture; no session left behind
 - [x] Prior polish pass: 8.3/10 (icon 8, clean quit 8.5, UI 8.5)
-- [ ] Redesign critic score
+- [~] Redesign critic score: 7.0 first pass; fixes applied, re-review in progress
 
 ## Technology and architecture
 
@@ -70,7 +70,12 @@ hardware, [ ] not done.
 - [x] Fix review blockers and re-review (prior phase)
 - [x] Redesign discovery: interaction-bug investigator, functional state audit, Apple design direction
 - [x] Redesign regression audit
-- [ ] Redesign critic score and any required re-review
+- [x] Popover takes key on show for active controls; app-level activation not claimed; focus restored if app becomes active
+- [x] Cached height applied before show; closed-window measurements ignored; top edge fixed
+- [x] Apple semantic palette: system accent controls, neutral labels, semantic dots/icons
+- [x] Custom thin progress bar removes the native red-dot artifact
+- [x] Installed app hash matches dist; disposable harness binaries removed
+- [~] Redesign critic score: 7/10; round 3 fixes applied, re-review pending
 
 ## Mandatory testing
 

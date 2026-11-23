@@ -16,9 +16,11 @@ public final class IOKitSystemMonitor: SystemControlling {
     public init() {}
 
     public func snapshot() -> SystemSnapshot {
-        let sleepDisabled = boolProperty("SleepDisabled")
-        let lidClosed = boolProperty("AppleClamshellState")
-        let causesSleep = boolProperty("AppleClamshellCausesSleep")
+        let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        defer { if root != IO_OBJECT_NULL { IOObjectRelease(root) } }
+        let sleepDisabled = boolProperty("SleepDisabled", service: root)
+        let lidClosed = boolProperty("AppleClamshellState", service: root)
+        let causesSleep = boolProperty("AppleClamshellCausesSleep", service: root)
         let battery = readBattery()
 
         return SystemSnapshot(
@@ -32,7 +34,8 @@ public final class IOKitSystemMonitor: SystemControlling {
             lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled,
             clamshellCausesSleepKnown: causesSleep != nil,
             sleepDisabledKnown: sleepDisabled != nil,
-            batteryInfoKnown: battery.known
+            batteryInfoKnown: battery.known,
+            lidStateKnown: lidClosed != nil
         )
     }
 
@@ -44,12 +47,8 @@ public final class IOKitSystemMonitor: SystemControlling {
         try pmset.setSystemSleepDisabled(enabled)
     }
 
-    private func boolProperty(_ key: String) -> Bool? {
-        guard let matching = IOServiceMatching("IOPMrootDomain") else { return nil }
-        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+    private func boolProperty(_ key: String, service: io_service_t) -> Bool? {
         guard service != IO_OBJECT_NULL else { return nil }
-        defer { IOObjectRelease(service) }
-
         guard let value = IORegistryEntryCreateCFProperty(
             service,
             key as CFString,
@@ -64,55 +63,57 @@ public final class IOKitSystemMonitor: SystemControlling {
         return value as? Bool
     }
 
-    private struct BatteryReading {
-        var onAC: Bool
-        var percent: Int?
-        var charging: Bool
-        var known: Bool
-    }
-
     private func readBattery() -> BatteryReading {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else {
-            return BatteryReading(onAC: true, percent: nil, charging: false, known: false)
+            return .unknown
         }
+        return BatteryReading.read(sources.lazy.compactMap { source in
+            IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any]
+        })
+    }
+}
 
-        var onAC = true
-        var percent: Int?
-        var charging = false
-        var known = false
+struct BatteryReading: Equatable {
+    let onAC: Bool
+    let percent: Int?
+    let charging: Bool
+    let known: Bool
 
+    static let unknown = BatteryReading(onAC: true, percent: nil, charging: false, known: false)
+
+    static func read(_ sources: some Sequence<[String: Any]>) -> BatteryReading {
         for source in sources {
-            guard let description = IOPSGetPowerSourceDescription(info, source)?
-                .takeUnretainedValue() as? [String: Any] else {
-                continue
-            }
-            guard (description[kIOPSIsPresentKey] as? Bool) ?? true else {
-                continue
+            guard (source[kIOPSIsPresentKey] as? Bool) ?? true else { continue }
+
+            let type = source[kIOPSTypeKey] as? String
+            let transport = source[kIOPSTransportTypeKey] as? String
+            guard type == kIOPSInternalBatteryType ||
+                  (type == nil && transport == kIOPSInternalType) else { continue }
+
+            let onAC: Bool
+            switch source[kIOPSPowerSourceStateKey] as? String {
+            case kIOPSACPowerValue: onAC = true
+            case kIOPSBatteryPowerValue: onAC = false
+            default: return .unknown
             }
 
-            let state = description[kIOPSPowerSourceStateKey] as? String
-            let type = description[kIOPSTypeKey] as? String
-            let isBattery = type == kIOPSInternalBatteryType ||
-                (description[kIOPSCurrentCapacityKey] != nil && description[kIOPSMaxCapacityKey] != nil)
-
-            if state == kIOPSBatteryPowerValue {
-                onAC = false
-            } else if state == kIOPSACPowerValue {
-                onAC = true
+            let percent: Int?
+            if let current = source[kIOPSCurrentCapacityKey] as? Int, current >= 0,
+               let maximum = source[kIOPSMaxCapacityKey] as? Int, maximum > 0 {
+                percent = Int((Double(min(current, maximum)) * 100 / Double(maximum)).rounded(.down))
+            } else {
+                percent = nil
             }
 
-            // Capture the battery percentage even while on AC. The source
-            // state is "AC Power" when plugged in, so checking for
-            // "Battery Power" alone would make the battery guard fail open.
-            if isBattery {
-                known = true
-                percent = description[kIOPSCurrentCapacityKey] as? Int
-                charging = (description[kIOPSIsChargingKey] as? Bool) ?? false
-            }
+            return BatteryReading(
+                onAC: onAC,
+                percent: percent,
+                charging: onAC && (source[kIOPSIsChargingKey] as? Bool ?? false),
+                known: true
+            )
         }
-
-        return BatteryReading(onAC: onAC, percent: percent, charging: charging, known: known)
+        return .unknown
     }
 }
 

@@ -1,8 +1,13 @@
 import SwiftUI
 import AppKit
 
+extension Notification.Name {
+    static let lidAwakeDiagnosticsRefresh = Notification.Name("LidAwakeDiagnosticsRefresh")
+}
+
 struct DiagnosticsView: View {
     @ObservedObject var model: AppModel
+    var onClose: (() -> Void)? = nil
     @State private var text = ""
     @State private var copyFeedback: String?
     @State private var feedbackTask: Task<Void, Never>?
@@ -16,7 +21,7 @@ struct DiagnosticsView: View {
                 if let copyFeedback {
                     Text(copyFeedback)
                         .font(.caption)
-                        .foregroundStyle(Theme.secondaryText)
+                        .foregroundStyle(Theme.textSecondary)
                         .transition(.opacity)
                 }
                 Button {
@@ -30,7 +35,11 @@ struct DiagnosticsView: View {
                     Label("Copy", systemImage: "document.on.document")
                 }
                 Button("Done") {
-                    NSApp.keyWindow?.performClose(nil)
+                    if let onClose {
+                        onClose()
+                    } else {
+                        NSApp.keyWindow?.performClose(nil)
+                    }
                 }
                 .keyboardShortcut(.cancelAction)
             }
@@ -49,6 +58,9 @@ struct DiagnosticsView: View {
         }
         .frame(minWidth: 400, minHeight: 260)
         .onAppear { refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .lidAwakeDiagnosticsRefresh)) { _ in
+            refresh()
+        }
         .onDisappear { feedbackTask?.cancel() }
     }
 

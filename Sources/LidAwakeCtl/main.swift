@@ -19,6 +19,7 @@ private struct StatusPayload: Codable {
     var sleepDisabled: Bool
     var sleepDisabledKnown: Bool
     var lidClosed: Bool
+    var lidStateKnown: Bool
     var clamshellCausesSleep: Bool
     var clamshellCausesSleepKnown: Bool
     var onAC: Bool
@@ -39,6 +40,7 @@ private func snapshotPayload() -> StatusPayload {
         sleepDisabled: snapshot.sleepDisabled,
         sleepDisabledKnown: snapshot.sleepDisabledKnown,
         lidClosed: snapshot.lidClosed,
+        lidStateKnown: snapshot.lidStateKnown,
         clamshellCausesSleep: snapshot.clamshellCausesSleep,
         clamshellCausesSleepKnown: snapshot.clamshellCausesSleepKnown,
         onAC: snapshot.onAC,
@@ -57,7 +59,7 @@ private func printStatus() {
     let payload = snapshotPayload()
     print("LidAwake status")
     print("  sleepDisabled:        \(payload.sleepDisabledKnown ? "\(payload.sleepDisabled)" : "unknown")")
-    print("  lidClosed:            \(payload.lidClosed)")
+    print("  lidClosed:            \(payload.lidStateKnown ? "\(payload.lidClosed)" : "unknown")")
     print("  clamshellCausesSleep: \(payload.clamshellCausesSleepKnown ? "\(payload.clamshellCausesSleep)" : "unknown")")
     print("  power:                \(payload.onAC ? "AC" : "Battery") \(payload.batteryPercent.map { "\($0)%" } ?? "n/a")\(payload.batteryInfoKnown ? "" : " (unknown)")")
     print("  charging:             \(payload.charging)")

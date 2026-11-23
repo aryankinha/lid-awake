@@ -276,7 +276,76 @@ Initial must-fix findings:
   per-second `launchctl` probing was removed.
 - `lidawake://render` is inert unless `LIDAWAKE_RENDER=1`; diagnostics reopen with
   fresh content; the view’s session values are centralized in `SessionDetails`.
-- 58 tests pass (30 core + 28 presentation/safety), with a release build/sign.
+- 66 tests pass (61 core + 5 app), with a release build/sign.
 
 Round-2 score pending. Live wheel/trackpad, hover/focus, menu-bar icon switching
 and admin clear/repair remain unverified while the Mac is locked.
+
+
+## UI polish round 2 — activation, jitter, Apple palette
+
+User-reported issues: the panel appeared to load slightly downward and settle upward on
+click; the custom color theme did not match Apple; the installed app needed a rebuild
+and stray build binaries needed cleanup.
+
+Fixes applied:
+
+- Activate the accessory app and make the popover key before showing, eliminating
+  the inactive-gray first paint and the first-click accent redraw.
+- Cache/apply the measured height before show, ignore measurements while closed, and
+  keep the popover top edge fixed. Live ON/OFF polling shows `y=28` unchanged through
+  `497 → 545 → 497` pt.
+- Replaced fixed-RGB brown/green status text with Apple semantic text and system
+  accent/status colors; removed the state-tinted card wash; replaced the native
+  `ProgressView` red-dot artifact with a thin accent capsule.
+- Rebuilt and installed to `~/Applications/LidAwake.app`; installed executable hash
+  matches `dist`; removed the three disposable `build/*` harnesses and stale rollback.
+- 66 automated tests pass (61 core + 5 app).
+
+> Erratum: the saved ON/OFF log starts at the active 545 pt frame, so the verified
+> transition is `545 → 497`, not `497 → 545 → 497`. Round 3 also corrected the
+> activation claim: on macOS 27 the accessory app may stay inactive; the key
+> popover paints active controls, the first inside click may activate the app, and
+> `popoverDidClose` restores the previous app.
+
+Round-2 critic score pending.
+
+
+### Round-3 critic result
+
+Initial score for this polish round: **7/10** (jitter 7, color 8, install 9,
+code/regressions 7). Must-fix items: real activation/focus restoration, deterministic
+first-open height, exact secondary-label contrast, stale light/docs evidence, the
+dim Diagnostics row, Advanced corner continuity, and an installer that respects
+AGENTS.
+
+Fixes applied for the re-score:
+
+- **Activation/focus:** stopped claiming app-level activation on macOS 27; the key
+  popover paints active controls, the first inside click may activate the app, and
+  `popoverDidClose` restores the previously frontmost app. Verified with Escape and
+  status-item dismissal returning to Brave/Antigravity IDE. A best-effort
+  `NSApp.activate()` remains for older macOS.
+- **First-open:** the fallback seed is the measured 497 pt height (not 476), capped
+  before show on short displays; `PopoverLayout` tests cover normal/short screens.
+  A sampler started before the click recorded first frame `497` at `t=0.257` with no
+  intermediate frames; Advanced produced one `497 → 617` step, `deltaY=0.00`.
+- **Contrast:** `textSecondary` is now `.secondaryLabelColor`; the false AA claim and
+  comment were removed.
+- **Visuals:** Diagnostics is a primary-label plain row with a trailing chevron;
+  Advanced uses a continuous corner; all three pickers render consistently; the
+  status footer hides the normal `Nominal` word.
+- **Diagnostics:** reopening from the popover deminiaturizes the existing window
+  instead of creating a duplicate; `Done` closes that window. Verified live
+  (minimize → reopen → same window, minimized=0 → Done → no windows).
+- **Installer:** preflights lease/session/`SleepDisabled`, preserves one rollback,
+  waits for a clean quit, refuses to replace a running app, verifies executable and
+  helper hashes, running path, watchdog, and bundled README.
+- **Docs/evidence:** removed light-mode references, corrected the lock-screen and
+  `497 → 545 → 497` claims, labeled the live captures, and refreshed all three
+  screenshots. The active shot is a live 2-minute URL session, disarmed immediately.
+- **Tests/install:** 68 tests pass (61 core + 7 app); installed executable hash
+  matches `dist` (`ac07b9d1…`); one rollback remains; `lease: none`,
+  `SleepDisabled 0`, no caffeinate, watchdog loaded.
+
+Submitted for a re-score.

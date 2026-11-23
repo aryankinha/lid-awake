@@ -655,7 +655,7 @@ final class AppModel: ObservableObject {
     }
 
     /// True when the panel should not offer to start a session. The primary
-    /// status already explains the current blocker, so the switch is disabled
+    /// status already explains the current blocker, so the button is disabled
     /// instead of allowing a click that cannot succeed.
     var isArmBlocked: Bool {
         guard !isActive else { return false }
@@ -690,6 +690,9 @@ final class AppModel: ObservableObject {
         if !watchdogHealthy { return "LidAwake: the safety check needs repair" }
         if presentation.isClamshellWarning {
             return "LidAwake on: lid-close sleep may still occur"
+        }
+        if activeSession?.mode == .clamshell && !snapshot.lidStateKnown {
+            return "LidAwake on: lid status unavailable"
         }
         if let risk = presentation.riskNote { return "LidAwake on: \(risk)" }
         if isActive {
@@ -728,6 +731,7 @@ final class AppModel: ObservableObject {
                 tripMode: activeSession?.config.tripMode ?? externalLease?.tripMode ?? tripMode,
                 hasSeenLidClosed: activeSession?.hasSeenLidClosed ?? false,
                 lidClosed: snapshot.lidClosed,
+                lidStateKnown: snapshot.lidStateKnown,
                 sleepStateKnown: snapshot.sleepDisabledKnown,
                 clamshellCausesSleepKnown: snapshot.clamshellCausesSleepKnown,
                 clamshellCausesSleep: snapshot.clamshellCausesSleep,
@@ -745,9 +749,7 @@ final class AppModel: ObservableObject {
         )
     }
 
-    /// Remaining wall-clock time without the "left" suffix; the view adds the
-    /// appropriate sentence. Passing a date lets TimelineView update once a second
-    /// without republishing the whole model.
+    /// Format the countdown at the view’s timeline date without republishing the model.
     func timeRemainingText(at date: Date = Date()) -> String? {
         if controller.stopping { return nil }
         guard let deadline = activeSession?.deadline else { return nil }
@@ -758,14 +760,6 @@ final class AppModel: ObservableObject {
         let seconds = remaining % 60
         if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
         return String(format: "%d:%02d", minutes, seconds)
-    }
-
-    func sessionProgress(at date: Date = Date()) -> Double? {
-        guard let session = activeSession, let deadline = session.deadline else { return nil }
-        let total = deadline.timeIntervalSince(session.startedAt)
-        guard total > 0 else { return nil }
-        let elapsed = date.timeIntervalSince(session.startedAt)
-        return min(max(elapsed / total, 0), 1)
     }
 
     var fallbackInstalled: Bool {
@@ -792,12 +786,13 @@ final class AppModel: ObservableObject {
 
     private func tick() {
         guard !isDisarming else { return }
+        let reading = monitor.snapshot()
         if controller.active != nil {
             // Ownership first: a stale local controller must never disarm a
             // session that another process has taken over.
             reconcileOwnership()
             if controller.active == nil {
-                refresh()
+                refresh(using: reading)
                 return
             }
             if let deadline = controller.active?.deadline, Date() >= deadline {
@@ -808,10 +803,10 @@ final class AppModel: ObservableObject {
                 if !watchdogInstaller.isHeartbeatFresh() {
                     attemptDisarm(.watchdog)
                 }
-                refresh()
+                refresh(using: reading)
                 return
             }
-            if let reason = controller.tick() {
+            if let reason = controller.tick(snapshot: reading) {
                 attemptDisarm(reason)
                 return
             }
@@ -820,7 +815,7 @@ final class AppModel: ObservableObject {
             let watchdogFresh = watchdogInstaller.isHeartbeatFresh()
             if !watchdogFresh {
                 if let grace = wakeGraceUntil, Date() < grace {
-                    refresh()
+                    refresh(using: reading)
                     return
                 }
                 watchdogMissCount += 1
@@ -835,7 +830,7 @@ final class AppModel: ObservableObject {
                 wakeGraceUntil = nil
             }
         }
-        refresh()
+        refresh(using: reading)
     }
 
     private func renew() {
@@ -849,8 +844,8 @@ final class AppModel: ObservableObject {
         refresh()
     }
 
-    private func refresh() {
-        let newSnapshot = monitor.snapshot()
+    private func refresh(using reading: SystemSnapshot? = nil) {
+        let newSnapshot = reading ?? monitor.snapshot()
         if newSnapshot != snapshot { snapshot = newSnapshot }
 
         let newActive = controller.active != nil
@@ -864,9 +859,9 @@ final class AppModel: ObservableObject {
         let healthy = watchdogLoaded && watchdogInstaller.isHeartbeatFresh()
         if healthy != watchdogHealthy { watchdogHealthy = healthy }
 
-        let lease = try? store.load()
+        let lease = newActive ? nil : try? store.load()
         var newExternal = false
-        if controller.active == nil, let lease, lease.bootID == SystemInfo.bootID {
+        if let lease, lease.bootID == SystemInfo.bootID {
             let live = lease.pid != SystemInfo.processID &&
                 SystemInfo.processIsAlive(lease.pid)
             // A stopping lease is recovery work even if the owning process is
@@ -1021,6 +1016,7 @@ final class AppModel: ObservableObject {
             var sleepDisabled: Bool
             var sleepDisabledKnown: Bool
             var lidClosed: Bool
+            var lidStateKnown: Bool
             var clamshellCausesSleep: Bool
             var clamshellCausesSleepKnown: Bool
             var onAC: Bool
@@ -1035,6 +1031,7 @@ final class AppModel: ObservableObject {
             sleepDisabled: snapshot.sleepDisabled,
             sleepDisabledKnown: snapshot.sleepDisabledKnown,
             lidClosed: snapshot.lidClosed,
+            lidStateKnown: snapshot.lidStateKnown,
             clamshellCausesSleep: snapshot.clamshellCausesSleep,
             clamshellCausesSleepKnown: snapshot.clamshellCausesSleepKnown,
             onAC: snapshot.onAC,

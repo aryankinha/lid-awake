@@ -3,69 +3,77 @@ import AppKit
 import LidAwakeCore
 
 enum Theme {
-    static let active = Color(nsColor: .systemGreen)
-    static let activeTrack = adaptive(
-        light: NSColor(srgbRed: 0.118, green: 0.620, blue: 0.431, alpha: 1),
-        dark: NSColor(srgbRed: 0.184, green: 0.749, blue: 0.525, alpha: 1)
-    )
+    // Native Apple label hierarchy. Supporting copy uses the system secondary
+    // label color; primary status text uses the full label color.
+    static let textPrimary = Color.primary
+    static let textSecondary = Color(nsColor: .secondaryLabelColor)
+    static let textTertiary = Color(nsColor: .tertiaryLabelColor)
+
+    // Semantic status colors are for dots and glyphs, never body copy.
+    static let success = Color(nsColor: .systemGreen)
     static let warning = Color(nsColor: .systemOrange)
     static let danger = Color(nsColor: .systemRed)
+    static let accent = Color(nsColor: .controlAccentColor)
 
-    static let activeText = adaptive(
-        light: NSColor(srgbRed: 0.043, green: 0.420, blue: 0.278, alpha: 1),
-        dark: NSColor(srgbRed: 0.357, green: 0.890, blue: 0.659, alpha: 1)
-    )
-    static let warningText = adaptive(
-        light: NSColor(srgbRed: 0.541, green: 0.294, blue: 0.0, alpha: 1),
-        dark: NSColor(srgbRed: 1.0, green: 0.710, blue: 0.361, alpha: 1)
-    )
-    static let dangerText = adaptive(
-        light: NSColor(srgbRed: 0.702, green: 0.149, blue: 0.118, alpha: 1),
-        dark: NSColor(srgbRed: 1.0, green: 0.541, blue: 0.502, alpha: 1)
-    )
+    // One neutral system surface and Apple's separator. No state-tinted cards.
+    static let hairline = Color(nsColor: .separatorColor)
+    static let primaryFill = Color.primary.opacity(0.045)
+    static let groupFill = Color.primary.opacity(0.040)
 
-    /// Meaningful secondary copy. Apple's `.secondary` is only ~3:1 on a light
-    /// popover, so these tokens keep body/status text at AA contrast.
-    static let secondaryText = adaptive(
-        light: NSColor(srgbRed: 0.27, green: 0.27, blue: 0.29, alpha: 1),
-        dark: NSColor(srgbRed: 0.76, green: 0.76, blue: 0.78, alpha: 1)
-    )
-    static let tertiaryText = adaptive(
-        light: NSColor(srgbRed: 0.38, green: 0.38, blue: 0.40, alpha: 1),
-        dark: NSColor(srgbRed: 0.66, green: 0.66, blue: 0.69, alpha: 1)
-    )
-
-    static let panelWidth: CGFloat = 360
+    static let panelWidth: CGFloat = 384
     static let primaryRadius: CGFloat = 16
     static let groupRadius: CGFloat = 14
-    static let hairline = Color.primary.opacity(0.08)
-    static let primaryFill = Color.primary.opacity(0.045)
-    static let groupFill = Color.primary.opacity(0.035)
-
-    static func adaptive(light: NSColor, dark: NSColor) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-        })
-    }
 }
 
 struct SectionLabel: View {
     let title: String
-    var trailing: String?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 2)
+    }
+}
+
+struct SessionMetric: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(Theme.secondaryText)
-            Spacer(minLength: 4)
-            if let trailing {
-                Text(trailing)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Theme.secondaryText)
-            }
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textPrimary)
         }
-        .padding(.horizontal, 2)
+        .lineLimit(1)
+        .minimumScaleFactor(0.82)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct WarningLine: View {
+    let text: String
+    var tint: Color = Theme.textSecondary
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 5) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.warning)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(tint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -96,19 +104,20 @@ struct GroupDivider: View {
     }
 }
 
-struct SettingsRowLabel: View {
+private struct SettingsRowLabel: View {
     let title: String
-    var subtitle: String?
+    let subtitle: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 13))
                 .foregroundStyle(.primary)
             if let subtitle {
                 Text(subtitle)
                     .font(.system(size: 11))
-                    .foregroundStyle(Theme.secondaryText)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -117,16 +126,15 @@ struct SettingsRowLabel: View {
 struct SettingsValueRow: View {
     let title: String
     let value: String
+    var subtitle: String?
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(title)
-                .font(.system(size: 13))
-                .foregroundStyle(.primary)
+            SettingsRowLabel(title: title, subtitle: subtitle)
             Spacer(minLength: 8)
             Text(value)
                 .font(.system(size: 13))
-                .foregroundStyle(Theme.secondaryText)
+                .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
         }
         .padding(.horizontal, 16)
@@ -134,6 +142,7 @@ struct SettingsValueRow: View {
         .frame(minHeight: 38)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(value)")
+        .accessibilityHint(subtitle ?? "")
     }
 }
 
@@ -186,9 +195,9 @@ struct SettingsMenuRow: View {
 
 struct SettingsToggleRow: View {
     let title: String
-    var subtitle: String?
     @Binding var isOn: Bool
     var disabled = false
+    var subtitle: String?
 
     var body: some View {
         Toggle(isOn: $isOn) {
@@ -199,45 +208,11 @@ struct SettingsToggleRow: View {
         }
         .toggleStyle(.switch)
         .padding(.horizontal, 16)
+        .padding(.vertical, subtitle == nil ? 0 : 5)
         .frame(minHeight: 38)
         .disabled(disabled)
         .accessibilityLabel(title)
         .accessibilityHint(subtitle ?? "")
-    }
-}
-
-struct SystemStatusLine: View {
-    let presentation: SessionPresentation
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text(presentation.powerText)
-                .foregroundStyle(presentation.isLowBattery ? Theme.warningText : Theme.secondaryText)
-            dot
-            Text(presentation.thermalText)
-                .foregroundStyle(presentation.isThermallyConstrained ? Theme.warningText : Theme.secondaryText)
-            dot
-            Text(presentation.lidText)
-                .foregroundStyle(Theme.secondaryText)
-            Spacer(minLength: 0)
-        }
-        .font(.system(size: 11))
-        .lineLimit(1)
-        .minimumScaleFactor(0.82)
-        .padding(.horizontal, 16)
-        .padding(.top, 1)
-        .padding(.bottom, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "Power: \(presentation.powerText). Thermal: \(presentation.thermalText). Lid: \(presentation.lidText)."
-        )
-    }
-
-    private var dot: some View {
-        Text("·")
-            .foregroundStyle(Theme.tertiaryText)
-            .accessibilityHidden(true)
     }
 }
 
@@ -248,8 +223,8 @@ struct NoticeBanner: View {
 
         var tint: Color {
             switch self {
-            case .warning: return Theme.warningText
-            case .danger: return Theme.dangerText
+            case .warning: return Theme.warning
+            case .danger: return Theme.danger
             }
         }
 
@@ -285,10 +260,10 @@ struct NoticeBanner: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(tone.tint)
+                        .foregroundStyle(Theme.textPrimary)
                     Text(message)
                         .font(.system(size: 12))
-                        .foregroundStyle(Theme.secondaryText)
+                        .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if actionDisabled {
                         ProgressView()
@@ -308,7 +283,7 @@ struct NoticeBanner: View {
                     Button(action: dismiss) {
                         Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(Theme.secondaryText)
+                            .foregroundStyle(Theme.textSecondary)
                             .frame(width: 26, height: 26)
                             .contentShape(Rectangle())
                     }
@@ -422,7 +397,7 @@ enum TimerChoice: String, CaseIterable, Identifiable {
         case .oneHour: return "1 hour"
         case .twoHours: return "2 hours"
         case .fourHours: return "4 hours"
-        case .eightHours: return "8 hours (maximum)"
+        case .eightHours: return "8 hours"
         }
     }
 
@@ -445,7 +420,7 @@ enum TimerChoice: String, CaseIterable, Identifiable {
     }
 
     static func displayDuration(_ seconds: TimeInterval?) -> String {
-        guard let seconds else { return "8 hours (maximum)" }
+        guard let seconds else { return "8 hours" }
         if seconds < 60 {
             return "\(max(1, Int(seconds.rounded()))) sec"
         }

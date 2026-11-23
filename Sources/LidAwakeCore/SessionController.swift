@@ -60,7 +60,7 @@ public final class SessionController {
             mode: config.mode,
             startedAt: start,
             deadline: deadline,
-            hasSeenLidClosed: before.lidClosed
+            hasSeenLidClosed: before.lidStateKnown && before.lidClosed
         )
 
         self.helperPID = helperPID
@@ -172,15 +172,14 @@ public final class SessionController {
 
     /// Re-evaluate safety conditions. Returns a reason if the session should
     /// be disarmed. The app is responsible for calling `disarm(reason:)`.
-    public func tick(now current: Date? = nil) -> DisarmReason? {
+    public func tick(now current: Date? = nil, snapshot currentSnapshot: SystemSnapshot? = nil) -> DisarmReason? {
         guard !stopping, var session = active else { return nil }
         let current = current ?? now()
-        let snapshot = system.snapshot()
-
         if let deadline = session.deadline, current >= deadline {
             return .timer
         }
 
+        let snapshot = currentSnapshot ?? system.snapshot()
         if session.mode == .system {
             // The fallback owns a global flag. If IOKit can no longer confirm
             // it, stop claiming the Mac is protected and let the app restore.
@@ -211,7 +210,7 @@ public final class SessionController {
             }
         }
 
-        if session.config.tripMode {
+        if session.config.tripMode && snapshot.lidStateKnown {
             if snapshot.lidClosed {
                 if !session.hasSeenLidClosed {
                     session.hasSeenLidClosed = true

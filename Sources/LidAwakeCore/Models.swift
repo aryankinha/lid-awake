@@ -61,6 +61,7 @@ public struct SystemSnapshot: Equatable, Sendable {
     /// False when no battery source could be read. The battery guard fails
     /// closed rather than assuming AC.
     public var batteryInfoKnown: Bool
+    public var lidStateKnown: Bool
 
     public init(
         sleepDisabled: Bool = false,
@@ -73,7 +74,8 @@ public struct SystemSnapshot: Equatable, Sendable {
         lowPowerMode: Bool = false,
         clamshellCausesSleepKnown: Bool = true,
         sleepDisabledKnown: Bool = true,
-        batteryInfoKnown: Bool = true
+        batteryInfoKnown: Bool = true,
+        lidStateKnown: Bool = true
     ) {
         self.sleepDisabled = sleepDisabled
         self.lidClosed = lidClosed
@@ -86,6 +88,7 @@ public struct SystemSnapshot: Equatable, Sendable {
         self.clamshellCausesSleepKnown = clamshellCausesSleepKnown
         self.sleepDisabledKnown = sleepDisabledKnown
         self.batteryInfoKnown = batteryInfoKnown
+        self.lidStateKnown = lidStateKnown
     }
 }
 

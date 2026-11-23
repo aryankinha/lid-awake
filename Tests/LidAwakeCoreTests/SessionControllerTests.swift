@@ -267,6 +267,15 @@ final class SessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.tick(now: now), .lidOpened)
     }
 
+    func testTripModeIgnoresAnUnavailableLidReading() throws {
+        let system = FakeSystem(state: SystemSnapshot(lidClosed: true))
+        let controller = makeController(system: system)
+        try controller.arm(config: SessionConfig(duration: 600, tripMode: true))
+
+        XCTAssertNil(controller.tick(now: now, snapshot: SystemSnapshot(lidStateKnown: false)))
+        XCTAssertEqual(controller.tick(now: now, snapshot: SystemSnapshot(lidClosed: false)), .lidOpened)
+    }
+
     func testTripModeDoesNotDisarmIfLidNeverClosed() throws {
         let system = FakeSystem(state: SystemSnapshot(lidClosed: false))
         let controller = makeController(system: system)

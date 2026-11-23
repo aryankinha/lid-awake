@@ -22,6 +22,15 @@
   active battery/thermal risk is surfaced before the automatic stop.
 - On a normal display the expanded Advanced panel fits all rows without scrolling;
   smaller displays scroll with a visible scrollbar and hint.
+- Popover takes key on open for active controls; the pre-show measurement makes the
+  first visible frame the final 497 pt collapsed height, and the top edge stays fixed
+  through ON/OFF and Advanced content changes. App-level activation is best effort
+  on older macOS and is not claimed on macOS 27; focus is restored if the app becomes
+  active.
+- Apple semantic palette: system accent controls, native label hierarchy, semantic
+  green/orange/red status dots and glyphs only, separator hairlines, neutral cards.
+- The custom app is installed at `~/Applications/LidAwake.app`; disposable build
+  harness binaries were removed and one rollback bundle is retained.
 - Measured, screen-capped scrolling with a visible scrollbar and overflow hint.
 - Menu bar icon observes a dedicated icon model (fixed frame, no inherited
   animation), so the once-per-second safety refresh cannot make it flicker.
@@ -46,7 +55,7 @@
 - Native notifications.
 - Install/uninstall no-admin; optional pmset fallback scripts with exact sudoers
   rule and retrying boot reset.
-- 58 unit tests pass (30 core + 28 presentation/edge-case/safety).
+- 68 unit tests pass (61 core + 7 app).
 - Monitor integration test (ioreg/pmset) passes.
 - CLI 20-toggle/no-unintended-settings test passes.
 - App and CLI SIGKILL recovery pass; caffeinate helper disappears; watchdog clears.
@@ -61,14 +70,13 @@
 
 ## Current environment note
 
-At final verification time the Mac was at the lock screen and `SleepDisabled 1`
-had been set outside LidAwake (no lease, no owned session). The redesigned panel
-correctly shows the external-flag warning and disables the primary switch. The
-flag requires an administrator to clear (`Clear…` in the panel, or
-`sudo pmset -a disablesleep 0`); LidAwake does not silently clear an unowned
-system flag. Live click/scroll/icon-flicker capture and the clean-quit test remain
-pending until the screen is unlocked and the flag is cleared. Offscreen 2×
-light/dark renders and all safe automated tests are captured in `TEST_RESULTS.md`.
+At final verification the Mac was unlocked, `SleepDisabled 0`, lid open, no active
+lease, and the watchdog running. A pre-click sampler proved the first visible frame
+was the final 497 pt collapsed height, and Advanced produced one 497→617 step with
+the top edge fixed at `y=28`. Escape returned focus to the previous app. The panel
+was left closed with no session. The dark popover captures are in `docs/`; light
+mode uses the same semantic system tokens. The earlier lock-screen/external-flag
+note is historical.
 - App bundle is ~1 MB, ad-hoc signed, `codesign --verify --strict` passes.
 
 ## Pending manual/hardware evidence

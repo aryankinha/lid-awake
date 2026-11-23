@@ -4,17 +4,17 @@ import LidAwakeCore
 
 struct MenuBarView: View {
     @ObservedObject var model: AppModel
-    var onSizeChange: ((CGFloat) -> Void)? = nil
-    private var onOpenDiagnostics: (() -> Void)?
+    private let onSizeChange: ((CGFloat) -> Void)?
+    private let onOpenDiagnostics: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var showAdvanced: Bool
-    @State private var contentHeight: CGFloat = 0
-    @State private var headerHeight: CGFloat = 49
-    @State private var footerHeight: CGFloat = 42
-    @State private var screenHeight: CGFloat = 900
+    @State private var contentHeight = PopoverLayout.compactScrollHeight
+    @State private var advancedDetailsHeight: CGFloat = 0
+    @State private var headerHeight = PopoverLayout.headerHeight
+    @State private var footerHeight = PopoverLayout.footerHeight
+    @State private var screenHeight: CGFloat
 
     private let sideInset: CGFloat = 16
 
@@ -22,17 +22,24 @@ struct MenuBarView: View {
         model: AppModel,
         onSizeChange: ((CGFloat) -> Void)? = nil,
         showAdvanced: Bool = false,
-        onOpenDiagnostics: (() -> Void)? = nil
+        onOpenDiagnostics: (() -> Void)? = nil,
+        initialScreenHeight: CGFloat? = nil
     ) {
         self.model = model
         self.onSizeChange = onSizeChange
         self.onOpenDiagnostics = onOpenDiagnostics
         _showAdvanced = State(initialValue: showAdvanced)
+        _screenHeight = State(
+            initialValue: initialScreenHeight
+                ?? NSScreen.main?.visibleFrame.height
+                ?? 900
+        )
     }
 
     private var scrollLimit: CGFloat {
-        // Budget for the popover chrome and keep the header and footer visible.
-        max(80, screenHeight - headerHeight - footerHeight - 40)
+        PopoverLayout.scrollLimit(
+            screenHeight: screenHeight, headerHeight: headerHeight, footerHeight: footerHeight
+        )
     }
 
     var body: some View {
@@ -46,7 +53,7 @@ struct MenuBarView: View {
                 panelContent
                     .reportHeight { contentHeight = $0 }
             }
-            .frame(height: min(contentHeight > 0 ? contentHeight : 420, scrollLimit))
+            .frame(height: min(contentHeight, scrollLimit))
             .modifier(PanelScrollBehavior())
 
             footer
@@ -64,7 +71,7 @@ struct MenuBarView: View {
     }
 
     private var panelContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             primaryModule
             if let notice = noticeSpec {
                 NoticeBanner(
@@ -89,15 +96,15 @@ struct MenuBarView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 23, height: 23)
+                .frame(width: 28, height: 28)
                 .accessibilityHidden(true)
 
             Text("LidAwake")
-                .font(.headline)
+                .font(.title3.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
                 .foregroundStyle(.primary)
 
@@ -107,214 +114,193 @@ struct MenuBarView: View {
 
     // MARK: - Primary control
 
+    private var wakeState: WakeControlState {
+        WakeControlState(
+            isActive: model.isActive,
+            isRestoring: model.isStopping || model.externalLease?.stopping == true,
+            isExternal: model.externalSession,
+            isBusy: model.isBusy,
+            isArmBlocked: model.isArmBlocked
+        )
+    }
+
     private var primaryModule: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Image(nsImage: model.menuIcon.image)
-                    .foregroundStyle(model.isActive ? Theme.activeText : Theme.secondaryText)
-                    .frame(width: 24, height: 22)
-                    .accessibilityHidden(true)
+        let state = wakeState
+        let presentation = model.presentation
+        let sessionState = state == .busy && model.isActive ? .on : state
 
-                Text("Keep this Mac awake")
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 11) {
+                wakeIcon(sessionState)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Keep Mac awake")
+                        .font(.system(size: 17, weight: .semibold))
+                        .accessibilityAddTraits(.isHeader)
 
-                Spacer(minLength: 4)
-
-                Toggle("", isOn: activeBinding)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.large)
-                    .disabled(
-                        model.externalSession ||
-                        model.isStopping ||
-                        model.isBusy ||
-                        model.isArmBlocked
-                    )
-                    .accessibilityLabel("Keep this Mac awake")
-                    .accessibilityValue(model.isActive ? "On" : "Off")
-                    .accessibilityHint(primaryAccessibilityHint)
-            }
-
-            VStack(alignment: .leading, spacing: 5) {
-                statusLine
-
-                Text(model.presentation.subtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let risk = model.presentation.riskNote {
-                    Label(risk, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.warningText)
+                    Text(model.externalSleepDisabled && !model.isActive && !model.externalSession
+                        ? "Sleep disabled externally"
+                        : presentation.statusText)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                if model.externalSleepDisabled && !model.externalSession {
-                    externalSleepControl
-                }
-
-                if let note = model.presentation.eventNote {
-                    Label(note, systemImage: "clock.arrow.circlepath")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Spacer(minLength: 0)
             }
-            .padding(.leading, 34)
 
-            if model.isActive {
-                activeSessionLine
-                    .transition(.opacity)
+            wakeButton(state)
+
+            Divider()
+            statusMetrics(sessionState)
+
+            if let risk = presentation.riskNote {
+                WarningLine(text: risk)
+            }
+            if model.externalSleepDisabled && !model.externalSession {
+                externalSleepControl
+            }
+            if state == .blocked, model.watchdogHealthy, !model.externalSleepDisabled,
+               effectiveMode != .system || model.fallbackInstalled {
+                Text(presentation.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if sessionState == .on, model.snapshot.lidClosed, !presentation.isClamshellWarning {
+                Text("Keep the Mac ventilated.")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            if presentation.eventNote != nil, let event = model.lastEvent {
+                Label(event.reason.displayName, systemImage: "clock")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityLabel("Last session: \(event.reason.displayName)")
             }
         }
-        .padding(16)
-        .background(primaryBackground)
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.primaryRadius)
+                .fill(Theme.primaryFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.primaryRadius)
+                .strokeBorder(
+                    sessionState == .on ? Theme.success.opacity(0.42) : Theme.hairline,
+                    lineWidth: 1
+                )
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: sessionState == .on)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func wakeIcon(_ state: WakeControlState) -> some View {
+        let symbol: String
+        let tint: Color
+        switch model.menuIcon {
+        case .idle:
+            symbol = "laptopcomputer"
+            tint = Theme.textSecondary
+        case .active:
+            symbol = "bolt.circle"
+            tint = Theme.success
+        case .attention:
+            symbol = "exclamationmark.triangle"
+            tint = model.errorMessage == nil ? Theme.warning : Theme.danger
+        }
+
+        return Image(systemName: symbol)
+            .font(.system(size: 19, weight: .medium))
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(tint)
+            .scaleEffect(state == .on ? 1.14 : 1)
+            .frame(width: 42, height: 42)
+            .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: state == .on)
+            .accessibilityHidden(true)
+    }
+
+    private func wakeButton(_ state: WakeControlState) -> some View {
+        Button {
+            if let target = state.requestedActive {
+                model.setActive(target)
+            }
+        } label: {
+            Label(state.actionTitle, systemImage: state == .on ? "power" : "bolt")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(state == .on ? Color(nsColor: .secondaryLabelColor) : Theme.accent)
+        .controlSize(.large)
+        .disabled(state.requestedActive == nil)
+        .accessibilityLabel(state.actionTitle)
+        .accessibilityHint(wakeActionHint(state))
+    }
+
+    private func wakeActionHint(_ state: WakeControlState) -> String {
+        switch state {
+        case .off:
+            return "Starts a LidAwake session."
+        case .on:
+            return model.externalSleepDisabled
+                ? "Ends the session. Sleep is also disabled outside LidAwake."
+                : "Ends the session and restores normal sleep."
+        case .busy, .blocked, .restoring, .external:
+            return model.presentation.subtitle
+        }
+    }
+
+    private func statusMetrics(_ state: WakeControlState) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                SessionMetric(
+                    title: state == .on ? "Time left" : "Session",
+                    value: state.sessionValue(remaining: model.timeRemainingText(at: context.date))
+                )
+            }
+            metricDivider
+            SessionMetric(title: "Battery", value: batteryValue)
+            metricDivider
+            SessionMetric(title: "Lid", value: lidValue)
+        }
+    }
+
+    private var metricDivider: some View {
+        Rectangle()
+            .fill(Theme.hairline)
+            .frame(width: 1, height: 32)
+            .accessibilityHidden(true)
+    }
+
+    private var lidValue: String {
+        guard model.snapshot.lidStateKnown else { return "Unknown" }
+        return model.snapshot.lidClosed ? "Closed" : "Open"
+    }
+
+    private var batteryValue: String {
+        let snapshot = model.snapshot
+        guard snapshot.batteryInfoKnown else { return "Unknown" }
+        if let percentage = snapshot.batteryPercent { return "\(percentage)%" }
+        return snapshot.onAC ? "AC power" : "Unknown"
     }
 
     @ViewBuilder
     private var externalSleepControl: some View {
         if model.isActive {
-            Text("Sleep was disabled outside LidAwake. Turning off won't restore normal sleep until it's cleared.")
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.warningText)
-                .fixedSize(horizontal: false, vertical: true)
+            WarningLine(text: "Sleep is also disabled outside LidAwake.")
         } else if model.isBusy {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Clearing the sleep flag")
         } else {
-            Button("Clear…") {
+            Button("Restore Sleep…") {
                 model.clearExternalSleepFlag()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .accessibilityHint("Clears the sleep setting that was changed outside LidAwake.")
+            .accessibilityHint("Clears the sleep setting changed outside LidAwake.")
         }
-    }
-
-    private var statusLine: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(dotColor)
-                    .frame(width: 6, height: 6)
-                    .accessibilityHidden(true)
-                Text(model.presentation.stateLabel)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(stateColor)
-            }
-            Text(model.presentation.statusText)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(statusTextColor)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var activeSessionLine: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    if model.isStopping {
-                        Text("Restoring normal sleep…")
-                    } else if let remaining = model.timeRemainingText(at: context.date) {
-                        Text("Turns off in \(remaining)\(tripModeSuffix)")
-                            .monospacedDigit()
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Text("Session active")
-                    }
-                    Spacer(minLength: 4)
-                    Text(model.presentation.modeShort)
-                        .foregroundStyle(Theme.secondaryText)
-                }
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(model.isStopping ? Theme.warningText : Theme.activeText)
-
-                if let progress = model.sessionProgress(at: context.date) {
-                    ProgressView(value: progress)
-                        .progressViewStyle(.linear)
-                        .tint(model.isStopping ? Theme.warning : Theme.activeTrack)
-                        .animation(
-                            reduceMotion ? nil : .linear(duration: 1),
-                            value: progress
-                        )
-                }
-            }
-        }
-    }
-
-    private var tripModeSuffix: String {
-        guard let session = model.activeSession else { return "" }
-        guard session.config.tripMode, session.hasSeenLidClosed else { return "" }
-        return " or when you reopen the lid"
-    }
-
-    private var primaryBackground: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: Theme.primaryRadius, style: .continuous)
-                .fill(Theme.primaryFill)
-            RoundedRectangle(cornerRadius: Theme.primaryRadius, style: .continuous)
-                .fill(Theme.active.opacity(model.isActive ? (colorScheme == .dark ? 0.09 : 0.07) : 0))
-        }
-    }
-
-    private var stateColor: Color {
-        if model.isStopping || model.externalSession { return Theme.warningText }
-        if model.isActive { return Theme.activeText }
-        return Theme.secondaryText
-    }
-
-    private var statusTextColor: Color {
-        model.isArmBlocked || model.isStopping || model.presentation.isWarning
-            ? Theme.warningText : Theme.secondaryText
-    }
-
-    private var dotColor: Color {
-        model.menuIcon == .attention ? Theme.warningText : stateColor
-    }
-
-    private var primaryAccessibilityHint: String {
-        if model.externalSession {
-            if model.externalLease?.stopping == true {
-                return "A previous session is restoring sleep. Wait for the safety check to finish."
-            }
-            return "Another LidAwake session is active. Turn it off there first."
-        }
-        if model.isStopping { return "The safety check is restoring normal sleep." }
-        if !model.watchdogHealthy {
-            return "The safety check needs repair before LidAwake can start."
-        }
-        if model.externalSleepDisabled {
-            return "Sleep is already off outside LidAwake. Clear it before starting."
-        }
-        if !model.snapshot.batteryInfoKnown ||
-            (!model.snapshot.onAC && model.snapshot.batteryPercent == nil) {
-            return "The battery can't be read. LidAwake won't start without a battery reading."
-        }
-        if effectiveMode == .system && !model.fallbackInstalled {
-            return "All sleep mode needs a one-time setup."
-        }
-        if effectiveMode == .system && !model.snapshot.sleepDisabledKnown {
-            return "Sleep state is unavailable, so All sleep mode can't be verified."
-        }
-        if model.isArmBlocked { return model.presentation.subtitle }
-        if model.isActive {
-            if let remaining = model.timeRemainingText() {
-                return "Turns off in \(remaining)\(tripModeSuffix)."
-            }
-            return "Lid-close sleep is blocked."
-        }
-        return model.presentation.subtitle
-    }
-
-    private var activeBinding: Binding<Bool> {
-        Binding(
-            get: { model.isActive },
-            set: { model.setActive($0) }
-        )
     }
 
     // MARK: - Notices
@@ -336,7 +322,7 @@ struct MenuBarView: View {
                 tone: .danger,
                 title: model.isStopping ? "Couldn't restore normal sleep" : "Safety check needs repair",
                 message: model.isStopping
-                    ? "LidAwake is still trying to restore sleep. Keep it running."
+                    ? "Keep LidAwake running while it restores sleep."
                     : error,
                 actionTitle: model.isStopping ? "Try Again" : "Repair",
                 action: {
@@ -355,7 +341,7 @@ struct MenuBarView: View {
             return NoticeSpec(
                 tone: .warning,
                 title: "Safety check needs repair",
-                message: "LidAwake can't turn on until the background check is running.",
+                message: "Repair the background check to start a session.",
                 actionTitle: "Repair",
                 action: { model.repairWatchdog() },
                 actionDisabled: true,
@@ -367,7 +353,7 @@ struct MenuBarView: View {
             return NoticeSpec(
                 tone: .warning,
                 title: "Lid-close sleep isn't blocked",
-                message: "macOS still sleeps this Mac when the lid closes. Keep the lid open, or turn LidAwake off and choose All sleep.",
+                message: "Keep the lid open or end the session and choose All sleep.",
                 actionTitle: "Diagnostics…",
                 action: openDiagnostics,
                 canDismiss: false
@@ -378,7 +364,7 @@ struct MenuBarView: View {
             return NoticeSpec(
                 tone: .warning,
                 title: "All sleep needs a one-time setup",
-                message: "An administrator must approve it before LidAwake can use this mode.",
+                message: "Administrator approval is required.",
                 actionTitle: "Set Up…",
                 action: { model.revealFallbackInstaller() },
                 canDismiss: false
@@ -417,7 +403,7 @@ struct MenuBarView: View {
         if let active = model.activeSession {
             return SessionDetails(
                 mode: active.mode,
-                duration: active.config.duration,
+                duration: active.deadline.map { $0.timeIntervalSince(active.startedAt) },
                 trip: active.config.tripMode,
                 floor: active.config.batteryFloor,
                 thermal: active.config.thermalGuard
@@ -447,124 +433,74 @@ struct MenuBarView: View {
     private var effectiveFloor: Int { sessionDetails.floor }
     private var effectiveThermal: Bool { sessionDetails.thermal }
 
-    @ViewBuilder
+    private var sessionSettingsLocked: Bool {
+        model.isActive || model.externalSession
+    }
+
     private var settingsArea: some View {
-        if model.isActive {
-            sessionSummary(
-                title: "This session",
-                trailing: "Turn LidAwake off to change",
-                duration: effectiveDuration,
-                trip: effectiveTrip,
-                floor: effectiveFloor,
-                thermal: effectiveThermal
-            )
-        } else if model.externalSession {
-            if model.externalLease != nil {
-                let recovering = model.externalLease?.stopping == true
-                sessionSummary(
-                    title: recovering ? "Session recovery" : "Another session",
-                    trailing: recovering ? "Waiting for safety check" : "Managed elsewhere",
-                    duration: effectiveDuration,
-                    trip: effectiveTrip,
-                    floor: effectiveFloor,
-                    thermal: effectiveThermal
-                )
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionLabel(title: "Session recovery", trailing: "Waiting for safety check")
-                    SettingsGroup {
-                        SettingsValueRow(
-                            title: "Session details",
-                            value: "Unavailable"
-                        )
-                        GroupDivider()
-                        SystemStatusLine(presentation: model.presentation)
-                    }
-                }
-            }
-        } else {
-            editableSettings
-        }
-    }
-
-    private var editableSettings: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(title: "Session settings")
-            editableSettingsGroup
-        }
-    }
+            SectionLabel(title: "Session Controls")
+                .accessibilityAddTraits(.isHeader)
 
-    private var editableSettingsGroup: some View {
-        SettingsGroup {
-            SettingsMenuRow(
-                title: "Turn off after",
-                value: TimerChoice(preset: model.timerPreset).title,
-                choices: TimerChoice.allCases.map {
-                    SettingsMenuChoice(id: $0.id, title: $0.title)
-                },
-                selectedID: TimerChoice(preset: model.timerPreset).id,
-                onSelect: { choice in
-                    guard let timer = TimerChoice(rawValue: choice.id) else { return }
-                    model.timerPreset = timer.preset
-                }
-            )
-            GroupDivider()
-            SettingsMenuRow(
-                title: "Stop at battery",
-                value: "\(model.batteryFloor)%",
-                choices: batteryChoices,
-                selectedID: "\(model.batteryFloor)",
-                onSelect: { choice in
-                    guard let value = Int(choice.id) else { return }
-                    model.batteryFloor = min(max(value, 10), 50)
-                }
-            )
-            GroupDivider()
-            SettingsToggleRow(
-                title: "Stop if the Mac runs hot",
-                isOn: $model.thermalGuard
-            )
-            GroupDivider()
-            SettingsToggleRow(
-                title: "Turn off when I reopen the lid",
-                subtitle: "After it has been closed once.",
-                isOn: $model.tripMode
-            )
-            GroupDivider()
-            SystemStatusLine(presentation: model.presentation)
-        }
-    }
-
-    private func sessionSummary(
-        title: String,
-        trailing: String,
-        duration: TimeInterval?,
-        trip: Bool,
-        floor: Int,
-        thermal: Bool
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(title: title, trailing: trailing)
             SettingsGroup {
-                SettingsValueRow(
-                    title: "Turn off after",
-                    value: TimerChoice.displayDuration(duration)
-                )
-                GroupDivider()
-                SettingsValueRow(title: "Stop at battery", value: "\(floor)%")
-                GroupDivider()
-                SettingsValueRow(
-                    title: "Stop if the Mac runs hot",
-                    value: thermal ? "On" : "Off"
-                )
-                GroupDivider()
-                SettingsValueRow(
-                    title: "Turn off when I reopen the lid",
-                    value: trip ? "On" : "Off"
-                )
-                GroupDivider()
-                SystemStatusLine(presentation: model.presentation)
+                if model.externalSession && model.externalLease == nil {
+                    SettingsValueRow(title: "Session controls", value: "Unavailable")
+                } else if sessionSettingsLocked {
+                    SettingsValueRow(title: "Auto-stop timer", value: TimerChoice.displayDuration(effectiveDuration))
+                    GroupDivider()
+                    SettingsValueRow(title: "Battery limit", value: "\(effectiveFloor)%")
+                    GroupDivider()
+                    lidReopenSetting
+                } else {
+                    SettingsMenuRow(
+                        title: "Auto-stop timer",
+                        value: TimerChoice(preset: model.timerPreset).title,
+                        choices: TimerChoice.allCases.map {
+                            SettingsMenuChoice(id: $0.id, title: $0.title)
+                        },
+                        selectedID: TimerChoice(preset: model.timerPreset).id,
+                        onSelect: { choice in
+                            guard let timer = TimerChoice(rawValue: choice.id) else { return }
+                            model.timerPreset = timer.preset
+                        }
+                    )
+                    GroupDivider()
+                    SettingsMenuRow(
+                        title: "Battery limit",
+                        value: "\(model.batteryFloor)%",
+                        choices: batteryChoices,
+                        selectedID: "\(model.batteryFloor)",
+                        onSelect: { choice in
+                            guard let value = Int(choice.id) else { return }
+                            model.batteryFloor = min(max(value, 10), 50)
+                        }
+                    )
+                    GroupDivider()
+                    lidReopenSetting
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var lidReopenSetting: some View {
+        let title = "Stop when lid opens"
+        let subtitle = "Automatically disable LidAwake when the MacBook lid is reopened after being closed."
+        if sessionSettingsLocked {
+            SettingsValueRow(title: title, value: effectiveTrip ? "On" : "Off", subtitle: subtitle)
+        } else {
+            SettingsToggleRow(title: title, isOn: $model.tripMode, subtitle: subtitle)
+        }
+    }
+
+    @ViewBuilder
+    private var temperatureSetting: some View {
+        let title = "Temperature Protection"
+        let subtitle = "Automatically stop the awake session if the Mac gets too hot."
+        if sessionSettingsLocked {
+            SettingsValueRow(title: title, value: effectiveThermal ? "On" : "Off", subtitle: subtitle)
+        } else {
+            SettingsToggleRow(title: title, isOn: $model.thermalGuard, subtitle: subtitle)
         }
     }
 
@@ -580,16 +516,14 @@ struct MenuBarView: View {
 
     private var advancedSection: some View {
         VStack(spacing: 0) {
-            Button {
-                showAdvanced.toggle()
-            } label: {
+            Button(action: toggleAdvanced) {
                 HStack(spacing: 8) {
                     Image(systemName: showAdvanced ? "chevron.down" : "chevron.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textTertiary)
                         .frame(width: 12)
                         .accessibilityHidden(true)
-                    Label("Advanced", systemImage: "gearshape")
+                    Label("Advanced Settings", systemImage: "slider.horizontal.3")
                         .font(.subheadline.weight(.medium))
                     Spacer(minLength: 0)
                 }
@@ -599,26 +533,49 @@ struct MenuBarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Advanced")
+            .accessibilityLabel("Advanced Settings")
             .accessibilityValue(showAdvanced ? "Expanded" : "Collapsed")
             .accessibilityHint(showAdvanced ? "Hide additional settings." : "Show additional settings.")
 
-            if showAdvanced {
+            VStack(spacing: 0) {
                 GroupDivider()
                 advancedContent
                     .padding(.bottom, 4)
             }
+            .fixedSize(horizontal: false, vertical: true)
+            .reportHeight { advancedDetailsHeight = $0 }
+            .frame(height: showAdvanced ? nil : 0, alignment: .top)
+            .clipped()
+            .disabled(!showAdvanced)
+            .allowsHitTesting(showAdvanced)
+            .accessibilityHidden(!showAdvanced)
         }
-        .background(Theme.groupFill, in: RoundedRectangle(cornerRadius: Theme.groupRadius))
+        .background(
+            Theme.groupFill,
+            in: RoundedRectangle(cornerRadius: Theme.groupRadius, style: .continuous)
+        )
+    }
+
+    private func toggleAdvanced() {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+
+        withTransaction(transaction) {
+            showAdvanced.toggle()
+            guard advancedDetailsHeight > 0 else { return }
+            // Measure the disclosure independently so the scroll view and
+            // native popover resize in the same update as the row changes.
+            contentHeight += showAdvanced ? advancedDetailsHeight : -advancedDetailsHeight
+            onSizeChange?(headerHeight + min(contentHeight, scrollLimit) + footerHeight)
+        }
     }
 
     private var advancedContent: some View {
         VStack(spacing: 0) {
-            if model.isActive || model.externalSession {
-                SettingsValueRow(
-                    title: "Sleep control",
-                    value: effectiveMode.friendlyName
-                )
+            if model.externalSession && model.externalLease == nil {
+                SettingsValueRow(title: "Sleep control", value: "Unavailable")
+            } else if sessionSettingsLocked {
+                SettingsValueRow(title: "Sleep control", value: effectiveMode.friendlyName)
             } else {
                 SettingsMenuRow(
                     title: "Sleep control",
@@ -635,13 +592,15 @@ struct MenuBarView: View {
             }
 
             if effectiveMode == .system {
-                Text(effectiveMode.friendlyDetail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.warningText)
-                    .fixedSize(horizontal: false, vertical: true)
+                WarningLine(text: effectiveMode.friendlyDetail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
+            }
+
+            if !model.externalSession || model.externalLease != nil {
+                GroupDivider()
+                temperatureSetting
             }
 
             GroupDivider()
@@ -659,17 +618,18 @@ struct MenuBarView: View {
 
             Button(action: openDiagnostics) {
                 HStack {
-                    Label("Diagnostics…", systemImage: "stethoscope")
+                    Label("Diagnostics…", systemImage: "waveform.path.ecg")
                     Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(Theme.textTertiary)
                         .accessibilityHidden(true)
                 }
+                .foregroundStyle(Theme.textPrimary)
                 .padding(.horizontal, 16)
                 .frame(minHeight: 38)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .accessibilityLabel("Open Diagnostics")
         }
     }
@@ -684,15 +644,8 @@ struct MenuBarView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider()
-            HStack(spacing: 10) {
-                if model.isActive {
-                    Text("Keep the Mac on a hard, ventilated surface.")
-                        .font(.caption)
-                        .foregroundStyle(Theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 4)
+            HStack {
+                Spacer()
                 quitButton
             }
             .padding(.horizontal, sideInset)
@@ -704,7 +657,7 @@ struct MenuBarView: View {
         Button {
             model.quit()
         } label: {
-            Label("Quit", systemImage: "power")
+            Label("Quit", systemImage: "rectangle.portrait.and.arrow.right")
         }
         .disabled(model.isBusy)
         .accessibilityLabel("Quit LidAwake")

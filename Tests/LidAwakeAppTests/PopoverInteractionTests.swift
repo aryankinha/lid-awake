@@ -31,6 +31,15 @@ final class PopoverInteractionTests: XCTestCase {
         XCTAssertEqual(updates.takeHeight(currentHeight: 510), 511)
     }
 
+    func testFirstOpenHeightIsDeterministicOnANormalScreen() {
+        XCTAssertEqual(PopoverLayout.initialContentHeight(screenHeight: 944), 504)
+    }
+
+    func testFirstOpenHeightCapsOnAShortScreenBeforeShowing() {
+        XCTAssertEqual(PopoverLayout.initialContentHeight(screenHeight: 500), 460)
+        XCTAssertEqual(PopoverLayout.initialContentHeight(screenHeight: 300), 260)
+    }
+
     func testClickInsidePopoverOrOnStatusItemDoesNotDismissIt() {
         let popover = CGRect(x: 70, y: 80, width: 360, height: 500)
         let anchor = CGRect(x: 220, y: 581, width: 32, height: 24)

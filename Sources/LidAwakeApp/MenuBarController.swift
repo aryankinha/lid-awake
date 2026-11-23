@@ -13,20 +13,31 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private var outsideClickMonitor: Any?
     private var appActivationObserver: NSObjectProtocol?
     private var heightUpdates = PopoverHeightUpdates()
+    private var lastMeasuredHeight: CGFloat = 0
+    private var previousFrontmostApp: NSRunningApplication?
+    private var dismissedByOtherApp = false
 
     init(model: AppModel) {
         self.model = model
         super.init()
 
+        let screen = NSScreen.screens.first {
+            $0.frame.contains(NSEvent.mouseLocation)
+        } ?? NSScreen.main
+        let screenHeight = screen?.visibleFrame.height ?? 900
+        let initialHeight = PopoverLayout.initialContentHeight(screenHeight: screenHeight)
+
         let view = MenuBarView(
             model: model,
             onSizeChange: { [weak self] height in self?.scheduleHeightUpdate(height) },
-            onOpenDiagnostics: { [weak self] in self?.popover.close() }
+            onOpenDiagnostics: { [weak self] in self?.popover.close() },
+            initialScreenHeight: screenHeight
         )
         let hosting = NSHostingController(rootView: view)
         hosting.sizingOptions = []
         popover.contentViewController = hosting
-        popover.contentSize = NSSize(width: Theme.panelWidth, height: 470)
+        popover.contentSize = NSSize(width: Theme.panelWidth, height: initialHeight)
+        lastMeasuredHeight = initialHeight
         popover.behavior = .applicationDefined
         popover.animates = false
         popover.delegate = self
@@ -49,8 +60,37 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     func showPopover() {
         guard !popover.isShown, let button = statusItem.button else { return }
         model.refreshLaunchAtLogin()
+        previousFrontmostApp = NSWorkspace.shared.frontmostApplication
+        dismissedByOtherApp = false
+
+        // Apply the last stable content height before the first visible frame.
+        // Otherwise the popover opens at the hardcoded size and settles upward
+        // after SwiftUI's first layout pass.
+        if let hosting = popover.contentViewController as? NSHostingController<MenuBarView> {
+            hosting.view.layoutSubtreeIfNeeded()
+            let fitted = hosting.view.fittingSize.height
+            if fitted.isFinite, fitted > 100 {
+                lastMeasuredHeight = fitted.rounded()
+            }
+        }
+        if lastMeasuredHeight > 100 {
+            popover.contentSize = NSSize(width: Theme.panelWidth, height: lastMeasuredHeight)
+        }
+
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         if popover.isShown {
+            // Best effort for older macOS, where an inactive popover can render
+            // muted controls. On macOS 27 this is a no-op for an accessory app;
+            // the key popover still renders with the active accent.
+            if #available(macOS 14.0, *) {
+                NSApp.activate()
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            // Make the popover key so its native controls render in the active
+            // accent. An accessory app may stay inactive; that is normal and the
+            // key popover still renders correctly.
+            popover.contentViewController?.view.window?.makeKey()
             button.highlight(true)
             monitorDismissal()
         }
@@ -66,6 +106,22 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         outsideClickMonitor = nil
         appActivationObserver = nil
         statusItem.button?.highlight(false)
+
+        // Return focus only when LidAwake itself is still frontmost. If the
+        // dismissal was an outside click, the clicked app already owns focus.
+        let pid = ProcessInfo.processInfo.processIdentifier
+        if !dismissedByOtherApp,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+           let previous = previousFrontmostApp,
+           previous.processIdentifier != pid {
+            if #available(macOS 14.0, *) {
+                previous.activate()
+            } else {
+                previous.activate(options: [.activateIgnoringOtherApps])
+            }
+        }
+        previousFrontmostApp = nil
+        dismissedByOtherApp = false
     }
 
     private func monitorDismissal() {
@@ -92,6 +148,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
                   app != NSRunningApplication.current else { return }
             MainActor.assumeIsolated {
                 guard let self, self.popover.isShown else { return }
+                self.dismissedByOtherApp = true
                 self.popover.close()
             }
         }
@@ -115,11 +172,25 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func scheduleHeightUpdate(_ height: CGFloat) {
+        guard height.isFinite, height > 100 else { return }
+        lastMeasuredHeight = height.rounded()
+
+        // Cache measurements while the panel is closed, but never resize a
+        // window that is not visible. A resize after show is the source of the
+        // visible settle.
+        guard popover.isShown else { return }
         guard heightUpdates.enqueue(height) else { return }
+
         // Apply only the last measurement from the current SwiftUI layout pass.
-        DispatchQueue.main.async {
-            guard let height = self.heightUpdates.takeHeight(currentHeight: self.popover.contentSize.height) else { return }
-            self.popover.contentSize = NSSize(width: Theme.panelWidth, height: height)
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let height = self.heightUpdates.takeHeight(currentHeight: self.popover.contentSize.height),
+                  self.popover.isShown else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                self.popover.contentSize = NSSize(width: Theme.panelWidth, height: height)
+            }
         }
     }
 

@@ -84,6 +84,7 @@ public struct SessionPresentationInput: Sendable {
     public var tripMode: Bool
     public var hasSeenLidClosed: Bool
     public var lidClosed: Bool
+    public var lidStateKnown: Bool
     public var sleepStateKnown: Bool
     public var clamshellCausesSleepKnown: Bool
     public var clamshellCausesSleep: Bool
@@ -109,6 +110,7 @@ public struct SessionPresentationInput: Sendable {
         tripMode: Bool = true,
         hasSeenLidClosed: Bool = false,
         lidClosed: Bool = false,
+        lidStateKnown: Bool = true,
         sleepStateKnown: Bool = true,
         clamshellCausesSleepKnown: Bool = true,
         clamshellCausesSleep: Bool = false,
@@ -133,6 +135,7 @@ public struct SessionPresentationInput: Sendable {
         self.tripMode = tripMode
         self.hasSeenLidClosed = hasSeenLidClosed
         self.lidClosed = lidClosed
+        self.lidStateKnown = lidStateKnown
         self.sleepStateKnown = sleepStateKnown
         self.clamshellCausesSleepKnown = clamshellCausesSleepKnown
         self.clamshellCausesSleep = clamshellCausesSleep
@@ -158,7 +161,7 @@ public enum SessionPresentationBuilder {
         let thermalBlock = hot && input.thermalGuard
         let clamshellWarning = input.isActive &&
             input.mode == .clamshell &&
-            input.lidClosed &&
+            input.lidStateKnown && input.lidClosed &&
             input.clamshellCausesSleepKnown &&
             input.clamshellCausesSleep
         let risk = riskNote(input)
@@ -197,6 +200,9 @@ public enum SessionPresentationBuilder {
             } else if clamshellWarning {
                 statusText = "Lid-close sleep may not be blocked"
                 subtitle = "macOS still reports lid-close sleep."
+            } else if !input.lidStateKnown {
+                statusText = "Lid status unavailable"
+                subtitle = "Keep the lid open if the Mac needs to stay awake."
             } else if input.lidClosed {
                 statusText = "Running with the lid closed"
                 subtitle = "Lid-close sleep is blocked. Keep the Mac ventilated."
@@ -239,7 +245,7 @@ public enum SessionPresentationBuilder {
             riskNote: risk,
             powerText: powerText(input, batteryUnavailable: batteryUnavailable),
             thermalText: thermalText(input.thermalState),
-            lidText: input.lidClosed ? "Lid closed" : "Lid open",
+            lidText: input.lidStateKnown ? (input.lidClosed ? "Lid closed" : "Lid open") : "Lid unknown",
             watchdogText: input.watchdogHealthy
                 ? "Active"
                 : (input.watchdogLoaded ? "Not responding" : "Not installed"),
@@ -248,6 +254,7 @@ public enum SessionPresentationBuilder {
                 batteryUnavailable ||
                 (input.mode == .system && !input.sleepStateKnown) ||
                 clamshellWarning ||
+                (input.isActive && input.mode == .clamshell && !input.lidStateKnown) ||
                 lowBattery ||
                 thermalBlock ||
                 !input.watchdogHealthy ||

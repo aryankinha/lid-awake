@@ -1,349 +1,66 @@
 # LidAwake
 
-A native macOS menu bar app that keeps a MacBook awake while its lid is closed,
-so background agents, builds, downloads and scripts can keep running.
+LidAwake is a menu bar app that keeps your MacBook awake when you close its lid. Use it for downloads, builds, or other tasks you want to finish in the background.
 
-**Built and tested on:** MacBook Pro `Mac15,3` (Apple M3), macOS 27.2 (26B123).
-**Default backend:** Apple's private clamshell-sleep selector — **no administrator
-access, no sudoers rule, no persistent disk flag.**
-**Fallback:** `pmset -a disablesleep` through a two-command scoped sudoers rule.
+## Will it work on my Mac?
 
----
+- **Apple silicon MacBook:** Tested on a MacBook Pro with an M3 chip running macOS 27.2.
+- **Intel MacBook:** The Intel build passed automated tests on an Apple silicon Mac using Rosetta. Closing the lid on a physical Intel MacBook still needs testing.
+- **macOS:** Requires macOS 13 Ventura or newer. Some MacBook models or macOS versions may still sleep with the lid closed.
+- **Desktop Mac:** LidAwake is designed for MacBooks. A Mac without an internal battery cannot start a session.
 
-## What it does
+## Download and install
 
-- One-click ON/OFF from the menu bar.
-- Live status read from IOKit, not from a cached app state.
-- **Trip Mode:** turns itself off when you reopen the lid.
-- Battery floor: defaults to 20%, configurable 10–50%.
-- Thermal protection: turns off at `ProcessInfo.thermalState == .serious` or `.critical`.
-- Timer: 1h, 2h, 4h, or the 8-hour maximum; every session is capped at 8 hours.
-- Crash protection: an independent user LaunchAgent watchdog clears the override
-  if the app quits, crashes or is force-quit.
-- Launch at login via a user LaunchAgent.
-- Notifications for arm/disarm and safety shutdowns.
-- Clean Quit: disarms, stops the helper, removes the watchdog, lease, heartbeat,
-  logs and support directory. The app bundle, preferences and an intentionally
-  enabled Launch at login setting remain.
-- Menu bar only; no Dock icon.
-- Optional system-wide `pmset` fallback, installed separately with explicit admin
-  approval.
+There is no ready-made app on GitHub Releases yet. You can download the project and build it on your Mac.
 
-LidAwake does **not** change `sleep`, `displaysleep`, `standby`, `hibernatemode`,
-SIP, kernel extensions, or any unrelated power setting.
+1. Install [Xcode](https://apps.apple.com/app/xcode/id497799835) 16 or newer and open it once.
+2. Open the [LidAwake project on GitHub](https://github.com/aryankinha/lid-awake). Click **Code → Download ZIP**.
+3. Double-click the downloaded ZIP to extract it.
+4. Open Terminal. Type `cd ` with a trailing space, drag the extracted folder into Terminal, and press Return.
+5. Run:
 
----
+   ```sh
+   ./scripts/install.sh
+   ```
 
-## Interface
+6. Click the laptop icon in the menu bar. The installer puts LidAwake in the **Applications** folder inside your home folder and opens it for you.
 
-The menu bar shows a laptop outline. A bolt inside the laptop indicates an
-active session, and an exclamation mark indicates a state that needs attention.
+To update, download the latest project and repeat steps 3–5. End any LidAwake session before running the installer.
 
-- **Keep this Mac awake** shows the current session, remaining time and safety notices.
-- **Session settings** cover the timer, battery floor, thermal protection and Trip Mode.
-- **Advanced** contains sleep control, Open at Login and Diagnostics.
+## Use LidAwake
 
-The native macOS popover stays anchored to the menu bar icon as its content resizes.
-It fits its content and scrolls when the available display height is too short. The Quit action stays
-visible below the scrolling area. Click anywhere on the Advanced row to expand it.
-Click outside the popover or press Escape to close it. The files in `docs/` show the original 1.0 UI.
+1. Open LidAwake from the menu bar.
+2. Set the **Auto-stop timer** and **Battery limit**.
+3. Click **Turn On**. The laptop icon changes and the panel shows how much time is left.
+4. Close the lid after confirming the app is on. For your first test, run a small download or another task with no important work at risk, and check that it continues.
+5. Click **Turn Off** to restore normal sleep. If **Stop when lid opens** is enabled, reopening the lid after closing it ends the session.
 
----
+Sessions have an eight-hour cap. Keep the MacBook on a hard, ventilated surface when it runs with the lid closed. Avoid putting it in a bag while it is awake.
 
-## How it works
+In **Advanced Settings**, you can enable temperature protection, open LidAwake at login, or open Diagnostics.
 
-```text
-AppKit menu bar popover with SwiftUI content
-  ├─ SessionController ── IOKit selector 12 (default, no root)
-  ├─ caffeinate -i -w PID ─ revocable idle-sleep helper
-  ├─ SystemMonitor ───── IOKit: SleepDisabled, clamshell, battery
-  ├─ Session lease ───── ~/Library/Application Support/LidAwake/session.json
-  └─ User LaunchAgent watchdog
-        └─ clears only LidAwake-owned state after a stale/dead lease
-```
+## If something goes wrong
 
-### Default: clamshell-only selector
+- **The icon is missing:** Open LidAwake from your home folder’s Applications folder and check the menu bar.
+- **You see a safety check warning:** Click **Repair** in the panel. Wait for the warning to clear before starting.
+- **The Mac still sleeps with the lid closed:** Keep the lid open for important work. LidAwake’s default sleep control depends on the Mac and its macOS version. **All sleep** is an optional mode that needs administrator setup and affects sleep across the whole Mac. Details are in [Architecture](ARCHITECTURE.md).
+- **You see an older interface:** Quit LidAwake, run the installer again, and open the copy in your home folder’s Applications folder.
 
-The app calls the private IOKit selector `kPMSetClamshellSleepState` (12) on
-`IOPMrootDomain`. It sets the `kClamshellSleepDisablePowerd` bit, which suppresses
-**lid-close sleep**. While a session is armed, the app also starts a separate,
-revocable `/usr/bin/caffeinate -i -w <app pid>` helper so idle sleep does not stop
-the agent. The watchdog can kill that helper by PID if the app hangs. Low-battery
-and thermal sleep are not overridden.
+## Remove LidAwake
 
-It is undocumented/private. The app verifies the call succeeds and always keeps the
-`pmset` fallback available. It does not survive a reboot (the kernel bit resets).
+1. Turn off any active session.
+2. Open Terminal and run:
 
-### Fallback: system-wide `pmset`
+   ```sh
+   ~/Applications/LidAwake.app/Contents/Resources/uninstall.sh
+   ```
 
-If the selector is unsuitable on a machine, install the optional fallback:
-
-```sh
-sudo ./scripts/install-pmset-fallback.sh
-```
-
-That creates exactly:
-
-```sudoers
-<you> ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 0, /usr/bin/pmset -a disablesleep 1
-```
-
-and a boot-time reset LaunchDaemon that retries until the kernel flag is clear.
-The fallback is optional; the default path requires no admin access.
-
----
-
-## Requirements
-
-- macOS 13 or later (tested on macOS 27.2).
-- Apple Silicon MacBook (tested on M3). Intel builds are source-build only and untested.
-- Xcode / Command Line Tools with the macOS 26 SDK or later (Xcode 27.2 used here).
-- No third-party dependencies.
+The uninstaller removes the app and its background safety helper. If you set up **All sleep**, macOS may ask for administrator approval to remove it.
 
----
-
-## Build and install
+## Build or test the project
 
-```sh
-cd ~/Downloads/LidAwake
-./scripts/build.sh
-./scripts/install.sh
-```
-
-`install.sh` installs to `~/Applications/LidAwake.app`, installs the user LaunchAgent
-watchdog, and launches the app. It does **not** use `sudo` and does **not** modify
-system-wide sleep settings.
-
-Open the menu bar icon to:
+- Run the automated tests with `swift test`.
+- Build for your current Mac with `./scripts/build.sh`.
+- Build one ZIP for both Apple silicon and Intel with `./scripts/build.sh --universal`. Find it at `dist/LidAwake-universal.zip`. This ZIP is for local testing. Public downloads should go through Apple’s signing and security checks so macOS can open them without extra warnings. [Apple’s distribution guide](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-1. Turn LidAwake ON.
-2. Optionally choose a timer and Trip Mode.
-3. Close the lid.
-
-The first launch shows any existing `SleepDisabled 1` as **external**. LidAwake does
-not silently take ownership of a flag set by another tool. Use the warning card to
-clear it with admin approval if you want LidAwake to own the state.
-
----
-
-## Usage
-
-| Control | Meaning |
-|---|---|
-| Toggle | Arm/disarm a sleep session |
-| Mechanism | Lid-close + idle (default, no admin) or system-wide manual fallback |
-| Auto-off | 1h/2h/4h/8h/off; hard cap 8h |
-| Trip Mode | Disarm after the lid has closed and then reopened |
-| Battery floor | On battery, disarm when percentage reaches the floor |
-| Thermal protection | Disarm at `.serious`/`.critical` thermal pressure |
-| Launch at login | Start LidAwake automatically at login |
-| Diagnostics | Copy live state, lease and watchdog health |
-
-### Automation
-
-The app registers the `lidawake://` URL scheme. Link options apply to the requested session. A value of `minutes=0` uses the eight-hour safety cap.
-
-```sh
-open 'lidawake://on?minutes=120&trip=1'
-open 'lidawake://off'
-open 'lidawake://toggle'
-# status copies the diagnostics JSON to the clipboard
-open 'lidawake://status'
-```
-
-A command-line tool is included inside the app bundle:
-
-```sh
-"/Users/you/Applications/LidAwake.app/Contents/Resources/lidawake-ctl" status
-"/Users/you/Applications/LidAwake.app/Contents/Resources/lidawake-ctl" status --json
-"/Users/you/Applications/LidAwake.app/Contents/Resources/lidawake-ctl" arm --minutes 120 --trip
-"/Users/you/Applications/LidAwake.app/Contents/Resources/lidawake-ctl" disarm
-```
-
-`arm` holds the session in the foreground and exits when the timer/battery/thermal/
-Trip Mode condition fires. It requires the watchdog to be installed.
-
----
-
-## Safety behavior
-
-- **Watchdog:** the app renews a lease every 5 seconds; the watchdog checks every
-  5 seconds and clears a session after 20 seconds of no renewal, or immediately if
-  the owner PID is gone. It also enforces the stored deadline, battery floor and
-  thermal guard independently.
-- **Never enables:** the watchdog only clears; it never turns sleep prevention on.
-  It also kills the revocable caffeinate helper before clearing the kernel bit.
-- **No lease, no clearing:** an external `SleepDisabled 1` is left alone.
-- **Battery fail-safe:** if battery state cannot be read at all, the app disarms
-  rather than assuming AC/100%. Arming is blocked when battery state is unknown.
-- **Thermal:** uses `ProcessInfo.thermalState`; `pmset -g therm` was not useful on
-  this machine.
-- **Unreadable/corrupt lease:** the watchdog clears the clamshell override rather
-  than leaving it on.
-- **Uninstall:** clears the override, removes both LaunchAgents and the app, and
-  reports any remaining system-wide flag.
-
-### Heat and theft warning
-
-A closed Mac in a bag is a **heat and battery risk**. LidAwake can enforce a battery
-floor, a thermal cutoff and a timer, but it cannot add airflow. Use a hard,
-ventilated surface; avoid heavy sustained CPU/GPU work in a closed bag.
-
-When `disablesleep`/clamshell sleep is blocked, the display still turns off, but the
-screen may remain unlocked for the configured delay. On this Mac the delay was 300
-seconds and FileVault was off. Set **Require password immediately** and lock before
-leaving.
-
----
-
-## Quit behavior
-
-A normal Quit (menu bar power button or `lidawake://quit`) disarms first. If the
-restore command fails, it refuses to quit and leaves the watchdog in place.
-
-On a successful quit it removes:
-
-- the `caffeinate` helper
-- the watchdog process and its LaunchAgent
-- `session.json`, `watchdog-health.json`, `lidawake.log`
-- the `~/Library/Application Support/LidAwake` directory
-
-It preserves the app bundle, `UserDefaults`, and an explicitly enabled Launch at
-login item. A force-quit cannot run cleanup; the watchdog remains and clears the
-lease, then stays available until the app is reopened or uninstalled.
-
-## Testing
-
-Automated:
-
-```sh
-swift test
-./scripts/test-monitor.sh
-./scripts/test-cli.sh
-./scripts/test-crash-recovery.sh
-./scripts/test-app-crash.sh
-./scripts/test-timer.sh
-./scripts/test-lid.sh   # interactive: close/reopen the lid when prompted
-./scripts/test-trip.sh  # interactive: Trip Mode close/open disarm
-./scripts/test-clean-quit.sh
-```
-
-See `TEST_RESULTS.md` for the exact outputs and which tests are automated, simulated
-or physical.
-
-Physical lid-close/reopen testing is a manual step because the lid is hardware.
-The selector passed a real lid-close test on this Mac (21 closed-lid
-`causesSleep=No` samples with `SleepDisabled=0`). A live CPU workload continued
-with no timestamp gaps while the lid was closed (672 ticks), and Trip Mode disarmed
-on reopen (`DISARM reason=lidOpened`). Real battery/thermal cutoffs and admin/boot
-behavior are still pending; see `TEST_RESULTS.md`.
-
----
-
-## Troubleshooting
-
-**Menu bar icon is missing.** The app is menu-bar-only. Check `pgrep -fl LidAwake`.
-If macOS 27 hides it in the menu bar overflow, use `lidawake://status` or the CLI.
-
-**"Watchdog starting" or "not running".** Open Diagnostics, then click **Repair
-watchdog**. Check:
-
-```sh
-launchctl print "gui/$(id -u)/com.aryankinha.LidAwake.watchdog"
-tail -20 "$HOME/Library/Application Support/LidAwake/lidawake.log"
-```
-
-**System-wide no-sleep is ON (external).** Another tool or a manual `pmset` command
-set `SleepDisabled 1`. LidAwake shows it rather than hiding it. Clear it from the
-warning card (admin approval) or:
-
-```sh
-sudo pmset -a disablesleep 0
-```
-
-**The Mac slept with the lid closed.** Check Diagnostics: if
-`clamshellCausesSleep` is `Yes` while LidAwake is active, the private selector did
-not take effect on this Mac/macOS. Use the optional `pmset` fallback.
-
-**App was deleted while ON.** The copied watchdog remains in
-`~/Library/Application Support/LidAwake/bin/` and will clear a stale lease. Run the
-uninstaller if available, or remove the LaunchAgents manually.
-
----
-
-## Uninstall
-
-```sh
-~/Applications/LidAwake.app/Contents/Resources/uninstall.sh
-```
-
-It:
-
-1. Clears the clamshell override.
-2. Removes the watchdog and login LaunchAgents.
-3. Removes the app and local support files.
-4. Removes the optional sudoers rule and boot-reset daemon if installed.
-5. Prints the current `SleepDisabled` state.
-
-If it prints `SleepDisabled 1`, the flag was set outside LidAwake. Restore normal
-sleep with:
-
-```sh
-sudo pmset -a disablesleep 0
-```
-
-To remove the optional fallback separately:
-
-```sh
-sudo ./scripts/uninstall-pmset-fallback.sh
-```
-
----
-
-## Project layout
-
-```text
-LidAwake/
-├── Package.swift
-├── Sources/
-│   ├── LidAwakeCore/       # IOKit, session, watchdog, presentation, installers
-│   ├── LidAwakeApp/        # SwiftUI menu bar app + design system
-│   └── LidAwakeCtl/        # CLI helper/watchdog
-├── Tests/                  # XCTest unit tests
-├── Resources/              # Info.plist + LidAwake.icns
-├── scripts/                # build, icon, install, uninstall, tests
-├── docs/                   # Original 1.0 UI screenshots
-├── ARCHITECTURE.md
-├── CHECKLIST.md
-├── TEST_RESULTS.md
-├── CRITIC_REVIEWS.md
-├── SECURITY.md
-├── FINAL_STATUS.md
-└── README.md
-```
-
----
-
-## Known limitations
-
-- The clamshell selector is private/undocumented; Apple can change it. The fallback
-  exists for that reason.
-- The private selector disables clamshell sleep only; the display still sleeps.
-- No iOS companion, no web dashboard, no telemetry.
-- Ad-hoc signed for local use; distribution would need Developer ID + notarization.
-- App Store distribution is not possible with root/privileged sleep control.
-- The selector property passed a real lid-close test on this Mac; background
-  workload continuity, Trip Mode, real thermal/battery-floor tests and admin/boot
-  behavior are documented separately in `TEST_RESULTS.md`.
-- Multiple keep-awake tools must not run at once; they can fight over the same
-  kernel state.
-- With FileVault enabled, the optional fallback's boot-reset LaunchDaemon may not
-  run until the Data volume is unlocked; it cannot cover the pre-login window. The
-  default clamshell selector resets on reboot and does not need a boot daemon.
-- The watchdog is a per-user LaunchAgent. A logout or forced logout removes it;
-  the app normally clears on termination, but a hung app can leave the kernel state
-  until the next login/boot. This is a single-user tool; do not use it with
-  fast-user-switching sessions that both try to own the global state.
-- The Amphetamine comparison in early research is intentionally not used as a
-  build-vs-buy decision here; its current closed-display mode and Power Protect
-  behavior should be tested on the target Mac if you choose that route.
+See [Architecture](ARCHITECTURE.md), [Test results](TEST_RESULTS.md), and [License](LICENSE) for more detail.

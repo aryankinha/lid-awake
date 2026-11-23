@@ -11,9 +11,18 @@ final class DiagnosticsWindowController {
     private var window: NSWindow?
 
     func show(model: AppModel) {
-        if let window, window.isVisible {
+        if let window {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            // The view only refreshes on first appearance; ask it to reread the
+            // live diagnostics when an existing window is brought forward.
+            NotificationCenter.default.post(
+                name: .lidAwakeDiagnosticsRefresh,
+                object: nil
+            )
             return
         }
 
@@ -26,6 +35,10 @@ final class DiagnosticsWindowController {
         window.contentMinSize = NSSize(width: 400, height: 260)
         window.center()
         window.setFrameAutosaveName("LidAwakeDiagnostics")
+        hosting.rootView = DiagnosticsView(
+            model: model,
+            onClose: { [weak window] in window?.performClose(nil) }
+        )
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
